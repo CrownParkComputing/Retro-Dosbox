@@ -870,7 +870,14 @@ void conf_combo(const char *label, std::string &value,
     if (ImGui::Combo(label, &cur, labels, count)) value = values[cur];
 }
 
-void settings_widgets(Settings &s, bool start_on_input)
+/*
+ * Which tab to open on. Kept as names rather than an int because the caller is
+ * choosing a page, not an index, and the two rail entries that lead here --
+ * Machine and Input -- differ by nothing else.
+ */
+enum class MachineTab { None, Cpu, Video, Sound, Input, Dos };
+
+void settings_widgets(Settings &s, MachineTab open)
 {
     /*
      * Tabbed the way DOSBox-X's own menu bar is: CPU, Video, Sound, DOS.
@@ -880,10 +887,21 @@ void settings_widgets(Settings &s, bool start_on_input)
      * DOSBox-X already knows which tab a setting is under, and anyone reading
      * its documentation finds our tab named the same as the menu the docs
      * mention. One long scrolling column was also simply hard to search.
+     *
+     * [open] is honoured ONLY on the frame a page is entered, which is the
+     * whole reason it is not a bool any more. The previous version asked for
+     * the Input tab on every frame the Input page was up, so that page could
+     * never show another tab -- and, because one tab bar serves both entries
+     * and ImGui remembers the selection, Machine afterwards opened on Input
+     * too. The two rail entries showed the same screen.
      */
+    auto want = [&](MachineTab t) -> ImGuiTabItemFlags {
+        return (open == t) ? ImGuiTabItemFlags_SetSelected : 0;
+    };
+
     if (!ImGui::BeginTabBar("##machine", ImGuiTabBarFlags_None)) return;
 
-    if (ImGui::BeginTabItem("CPU")) {
+    if (ImGui::BeginTabItem("CPU", nullptr, want(MachineTab::Cpu))) {
         ImGui::Spacing();
 #if defined(__APPLE__)
         /* There is no dynamic core on iOS to offer. It recompiles x86 into
@@ -917,7 +935,7 @@ void settings_widgets(Settings &s, bool start_on_input)
         ImGui::EndTabItem();
     }
 
-    if (ImGui::BeginTabItem("Video")) {
+    if (ImGui::BeginTabItem("Video", nullptr, want(MachineTab::Video))) {
         ImGui::Spacing();
         {
             static const char *vals[] = { "svga_s3", "svga_s3trio64", "vesa_vbe3",
@@ -958,7 +976,7 @@ void settings_widgets(Settings &s, bool start_on_input)
         ImGui::EndTabItem();
     }
 
-    if (ImGui::BeginTabItem("Sound")) {
+    if (ImGui::BeginTabItem("Sound", nullptr, want(MachineTab::Sound))) {
         ImGui::Spacing();
         static const char *sb[] = { "sbpro2", "sb16", "sb16vibra", "sbpro1",
                                     "sb2", "sb1", "none" };
@@ -975,14 +993,13 @@ void settings_widgets(Settings &s, bool start_on_input)
         ImGui::EndTabItem();
     }
 
-    if (ImGui::BeginTabItem("Input", nullptr,
-                            start_on_input ? ImGuiTabItemFlags_SetSelected : 0)) {
+    if (ImGui::BeginTabItem("Input", nullptr, want(MachineTab::Input))) {
         ImGui::Spacing();
         controls_widgets(s);
         ImGui::EndTabItem();
     }
 
-    if (ImGui::BeginTabItem("DOS")) {
+    if (ImGui::BeginTabItem("DOS", nullptr, want(MachineTab::Dos))) {
         ImGui::Spacing();
         ImGui::SliderInt("Memory (MB)", &s.memsize, 1, 64);
         TextDimWrapped("32 MB is the safe default: DOS/4GW 1.97 miscalculates "
@@ -1211,6 +1228,9 @@ int main(int argc, char **argv)
                       Windows, Demo, About };
     View view = cfg.wizard_done ? View::Shell : View::Wizard;
     Page page = Page::Library;
+    /* The page drawn on the previous frame, so a page can tell that it has
+     * just been opened. */
+    Page page_last_frame = Page::Library;
 
     std::thread engine;
     SDL_Texture *fb_tex = nullptr;
@@ -1996,6 +2016,13 @@ int main(int argc, char **argv)
             ImGui_ImplSDL3_NewFrame();
             ImGui::NewFrame();
 
+            /* Did the user arrive somewhere new this frame? Captured here, at
+             * the top, because a button pressed further down changes `page`
+             * for the NEXT frame -- comparing after the fact would see the new
+             * page already recorded and report no change at all. */
+            const bool page_changed = (page_last_frame != page);
+            page_last_frame = page;
+
             /* The usable rectangle, not the whole screen.
              *
              * On a device with a Dynamic Island or a home indicator, drawing
@@ -2625,6 +2652,15 @@ int main(int argc, char **argv)
                     static Settings edit;
                     static int edit_for = -3;
 
+                    /* Choose the tab only on arrival, so the page is still a
+                     * tabbed page once you are on it: Machine opens on CPU,
+                     * Input opens on Input, and after that whichever tab you
+                     * pick stays picked until you leave. */
+                    const MachineTab open_tab =
+                        !page_changed       ? MachineTab::None
+                        : page == Page::Input ? MachineTab::Input
+                                              : MachineTab::Cpu;
+
                     const bool per_game = (selected >= 0 && selected < (int)games.size());
                     if (edit_for != selected) {
                         edit = cfg.defaults;
@@ -2650,7 +2686,7 @@ int main(int argc, char **argv)
                                       ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.6f),
                                       0, ImGuiWindowFlags_NoScrollbar);
                     scroll_by_drag();
-                    settings_widgets(edit, page == Page::Input);
+                    settings_widgets(edit, open_tab);
                     if (per_game) {
                         ImGui::Spacing();
                         ImGui::TextDisabled("Saved for this game only; others keep the "
@@ -3159,44 +3195,81 @@ int main(int argc, char **argv)
             }
 
             /* ---------------- In-game overlay ---------------- */
+            /*
+             * Resume is pinned, and everything else scrolls.
+             *
+             * This used to auto-size and grow downwards, one full-width button
+             * per row. Open the disc list on a machine with a few images and
+             * the panel became taller than the window -- and because it is
+             * centred, it grew off BOTH ends, taking Resume with it. The way
+             * out of the menu is the one control that must never be the thing
+             * that scrolled away.
+             */
             if (view == View::Emulator && show_overlay) {
-                ImGui::SetNextWindowPos(ImVec2(origin.x + full.x * 0.5f, origin.y + full.y * 0.35f),
+                const float fs = ImGui::GetFontSize();
+                const float panel_w = fs * 26.0f;
+                const float panel_h = (full.y * 0.8f < fs * 32.0f)
+                                    ? full.y * 0.8f : fs * 32.0f;
+                ImGui::SetNextWindowPos(ImVec2(origin.x + full.x * 0.5f,
+                                               origin.y + full.y * 0.5f),
                                         ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+                ImGui::SetNextWindowSize(ImVec2(panel_w, panel_h), ImGuiCond_Always);
                 ImGui::Begin("Paused", nullptr,
                              ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                             ImGuiWindowFlags_AlwaysAutoResize);
+                             ImGuiWindowFlags_NoCollapse);
+
                 char prog[64] = {0};
                 retrodos_host_running_program(prog, sizeof(prog));
-                ImGui::Text("Running: %s", prog[0] ? prog : "DOS");
+
+                /* ---- pinned ---- */
+                const float halfw = (ImGui::GetContentRegionAvail().x -
+                                     ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+                if (ImGui::Button("Resume", ImVec2(halfw, fs * 1.8f)))
+                    show_overlay = false;
+                ImGui::SameLine();
+                if (ImGui::Button("Quit to library", ImVec2(halfw, fs * 1.8f))) {
+                    retrodos_host_quit(); show_overlay = false;
+                }
+                ImGui::TextDisabled("Running: %s", prog[0] ? prog : "DOS");
                 ImGui::Separator();
+
+                ImGui::BeginChild("##pausebody", ImVec2(0, 0), 0,
+                                  ImGuiWindowFlags_NoScrollbar);
+                scroll_by_drag();
+
                 if (!win_hint.empty()) {
-                    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
+                    ImGui::PushTextWrapPos(0.0f);
                     ImGui::TextWrapped("%s", win_hint.c_str());
                     ImGui::PopTextWrapPos();
                     ImGui::Separator();
                 }
-                const ImVec2 bw(ImGui::GetFontSize() * 11.0f, 0);
-                if (ImGui::Button("Resume", bw)) show_overlay = false;
+
+                /* Two to a row from here down. Every one of these is a short
+                 * label, and a column of full-width buttons was most of why
+                 * the panel did not fit. */
+                const ImVec2 bw(halfw, 0);
                 /* One panel at a time. The keyboard and the controls panel
                  * both cover the game, both block keys from reaching DOS, and
                  * stacked they buried each other's close buttons -- a player
                  * ended up wedged with "1" apparently doing nothing. */
-                if (ImGui::Button(show_osk ? "Hide keyboard" : "Show keyboard", bw)) {
+                if (ImGui::Button(show_osk ? "Hide keyboard" : "Keyboard", bw)) {
                     show_osk = !show_osk; show_overlay = false;
                     if (show_osk) show_controls = false;
                 }
+                ImGui::SameLine();
                 if (ImGui::Button("Controls", bw)) {
                     show_controls = true; show_overlay = false; show_osk = false;
                 }
-#if !defined(__ANDROID__) && !defined(__APPLE__)
-#endif
                 /* If the guest's pointer is not moving, this says which half
                  * is at fault without anyone having to guess. */
-                if (ImGui::Button(mouse_free ? "Give mouse to Windows"
+                if (ImGui::Button(mouse_free ? "Give mouse to guest"
                                              : "Release mouse", bw))
                     mouse_free = !mouse_free;
-                ImGui::TextDisabled("or Ctrl+F10, or click the picture");
-                ImGui::TextDisabled("mouse: %lu seen, %lu sent%s",
+                ImGui::SameLine();
+                if (ImGui::Button("Ctrl+Alt+Del", bw)) {
+                    retrodos::osk_send_ctrl_alt_del(); show_overlay = false;
+                }
+                ImGui::TextDisabled("mouse: %lu seen, %lu sent%s - or Ctrl+F10",
                                     mouse_seen, mouse_sent,
                                     mouse_grabbed ? ", held" : "");
                 /*
@@ -3225,12 +3298,6 @@ int main(int argc, char **argv)
                             if (n > 0) show_overlay = false;
                         }
                     }
-                } else {
-                    ImGui::TextDisabled("Clipboard is empty");
-                }
-
-                if (ImGui::Button("Ctrl+Alt+Del", bw)) {
-                    retrodos::osk_send_ctrl_alt_del(); show_overlay = false;
                 }
 
                 /* Laying the controls out belongs here rather than on the
@@ -3350,12 +3417,12 @@ int main(int argc, char **argv)
                     ImGui::PopTextWrapPos();
                 }
 
+                ImGui::Spacing();
                 if (ImGui::Button("Reset machine", bw)) {
                     retrodos_host_reset(true); show_overlay = false;
                 }
-                if (ImGui::Button("Quit to library", bw)) {
-                    retrodos_host_quit(); show_overlay = false;
-                }
+
+                ImGui::EndChild();
                 ImGui::End();
             }
 
