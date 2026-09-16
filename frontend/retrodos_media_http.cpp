@@ -22,6 +22,10 @@
 #include "retrodos_media.h"
 #include "retrodos_brand.h"
 
+/* minizip, which the DOSBox-X core already vendors and this binary already
+ * links -- so unpacking a downloaded game needs no new dependency. */
+#include "unzip.h"
+
 #include <SDL3/SDL.h>
 #include <curl/curl.h>
 
@@ -381,12 +385,16 @@ struct Resp {
 struct Sink {
     std::string body;
     size_t      cap = 0;
+    FILE       *file = nullptr;
 };
+
+struct Sink;
 
 size_t write_cb(char *ptr, size_t size, size_t nmemb, void *ud)
 {
     Sink *sink = (Sink *)ud;
     const size_t n = size * nmemb;
+    if (sink->file) return fwrite(ptr, 1, n, sink->file);
     /* Returning short is how libcurl is told to abort, and it is the only cap
      * that applies when the server declares no Content-Length. */
     if (sink->body.size() + n > sink->cap) return 0;
@@ -412,6 +420,46 @@ size_t header_cb(char *ptr, size_t size, size_t nmemb, void *ud)
     return n;
 }
 
+/* Live progress of a download, sampled by the UI every frame rather than
+ * queued: a 1 GB title is minutes of otherwise silent work, and the screen
+ * wants the latest figure, not every figure. */
+struct Progress {
+    std::mutex  m;
+    std::string text;
+};
+Progress g_progress;
+
+void set_progress(const std::string &t)
+{
+    std::lock_guard<std::mutex> lock(g_progress.m);
+    g_progress.text = t;
+}
+
+int xfer_cb(void *ud, curl_off_t dltotal, curl_off_t dlnow, curl_off_t, curl_off_t)
+{
+    const char *title = (const char *)ud;
+    static curl_off_t last = 0;
+    /* A new transfer starts from zero, so the mark has to go back with it --
+     * without this the second download reports nothing until it passes the
+     * size of the first. */
+    if (dlnow < last) last = 0;
+    /* Formatting a string per callback would cost more than the transfer; once
+     * every 4 MB is plenty for something a person is watching. */
+    if (dlnow != 0 && dlnow - last < (4 << 20)) return 0;
+    last = dlnow;
+
+    char buf[160];
+    const double mb = (double)dlnow / (1024.0 * 1024.0);
+    if (dltotal > 0)
+        snprintf(buf, sizeof buf, "%s  %.0f / %.0f MB  (%d%%)", title ? title : "",
+                 mb, (double)dltotal / (1024.0 * 1024.0),
+                 (int)(dlnow * 100 / dltotal));
+    else
+        snprintf(buf, sizeof buf, "%s  %.0f MB", title ? title : "", mb);
+    set_progress(buf);
+    return 0;
+}
+
 struct Req {
     std::string path;             /* absolute when it starts with http      */
     const char *method = "GET";
@@ -419,6 +467,13 @@ struct Req {
     const char *content_type = nullptr;
     bool   auth = true;
     size_t cap  = kJsonCap;
+
+    /* When set, the body is streamed straight to this file instead of being
+     * accumulated in memory -- a downloaded game is routinely larger than this
+     * process should ever hold. */
+    FILE       *sink_file = nullptr;
+    const char *progress_title = nullptr;
+    long        timeout_s = 60;
 };
 
 Resp http(const Req &req)
@@ -435,10 +490,11 @@ Resp http(const Req &req)
     curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(c, CURLOPT_MAXREDIRS, 4L);
     curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 15L);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT, 60L);
+    curl_easy_setopt(c, CURLOPT_TIMEOUT, req.timeout_s);
     curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
     Sink sink;
-    sink.cap = req.cap;
+    sink.cap  = req.cap;
+    sink.file = req.sink_file;
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, write_cb);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, &sink);
     curl_easy_setopt(c, CURLOPT_HEADERFUNCTION, header_cb);
@@ -447,7 +503,14 @@ Resp http(const Req &req)
      * where the server declares one. The write callback is not a second
      * defence here -- it is the only one when there is no Content-Length --
      * so the cap is checked there too, below. */
-    curl_easy_setopt(c, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)req.cap);
+    if (!req.sink_file)
+        curl_easy_setopt(c, CURLOPT_MAXFILESIZE_LARGE, (curl_off_t)req.cap);
+
+    if (req.progress_title) {
+        curl_easy_setopt(c, CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(c, CURLOPT_XFERINFOFUNCTION, xfer_cb);
+        curl_easy_setopt(c, CURLOPT_XFERINFODATA, (void *)req.progress_title);
+    }
 
     struct curl_slist *headers = nullptr;
     if (req.content_type)
@@ -860,6 +923,226 @@ bool write_rda(const std::string &path, int w, int h,
     return ok;
 }
 
+/* ---------------------------------------------------------------------- */
+/* Downloading a game                                                      */
+/* ---------------------------------------------------------------------- */
+
+/* Anything that is a path, a control character, or illegal on the FAT volumes
+ * these libraries usually live on. */
+std::string sanitise(const std::string &in)
+{
+    std::string out;
+    for (unsigned char c : in) {
+        if (c < 0x20 || strchr("/\\:*?\"<>|", c)) out.push_back('_');
+        else out.push_back((char)c);
+    }
+    while (!out.empty() && (out.back() == ' ' || out.back() == '.')) out.pop_back();
+    size_t b = 0;
+    while (b < out.size() && out[b] == ' ') ++b;
+    return out.substr(b);
+}
+
+std::string base_of(const std::string &path)
+{
+    const size_t slash = path.find_last_of("/\\");
+    return (slash == std::string::npos) ? path : path.substr(slash + 1);
+}
+
+bool starts_with_zip_magic(const std::string &path)
+{
+    FILE *f = fopen(path.c_str(), "rb");
+    if (!f) return false;
+    unsigned char m[4] = {0};
+    const bool got = fread(m, 1, 4, f) == 4;
+    fclose(f);
+    return got && m[0] == 'P' && m[1] == 'K' && m[2] == 3 && m[3] == 4;
+}
+
+/*
+ * Unpack one zip into [dir], flat.
+ *
+ * Flat on purpose: DOSBox-X mounts the game's folder as a drive and the
+ * launcher looks for a .BAT/.COM/.EXE directly in it, so a title buried two
+ * directories down would list as a game with nothing to run. Entry names are
+ * reduced to their last component, which also disposes of the "../" escape a
+ * crafted archive would otherwise use to write outside the folder.
+ */
+int unzip_into(const std::string &zip_path, const std::string &dir,
+               const std::string &title)
+{
+    unzFile z = unzOpen64(zip_path.c_str());
+    if (!z) return -1;
+
+    int written = 0;
+    std::vector<char> buf(256 * 1024);
+    if (unzGoToFirstFile(z) == UNZ_OK) {
+        do {
+            unz_file_info64 info;
+            char name[512] = {0};
+            if (unzGetCurrentFileInfo64(z, &info, name, sizeof(name) - 1,
+                                        nullptr, 0, nullptr, 0) != UNZ_OK)
+                break;
+
+            const std::string leaf = sanitise(base_of(name));
+            if (leaf.empty()) continue;            /* a directory entry */
+            if (unzOpenCurrentFile(z) != UNZ_OK) continue;
+
+            const std::string out_path = dir + "/" + leaf;
+            FILE *out = fopen(out_path.c_str(), "wb");
+            if (out) {
+                for (;;) {
+                    const int n = unzReadCurrentFile(z, buf.data(), (unsigned)buf.size());
+                    if (n <= 0) break;
+                    if (fwrite(buf.data(), 1, (size_t)n, out) != (size_t)n) break;
+                }
+                fclose(out);
+                ++written;
+                set_progress(title + "  unpacking " + leaf);
+            }
+            unzCloseCurrentFile(z);
+        } while (unzGoToNextFile(z) == UNZ_OK);
+    }
+    unzClose(z);
+    return written;
+}
+
+/* Every .zip sitting directly in [dir], unpacked and then removed.
+ *
+ * The catalogue ships games as archives, and an archive left as-is appears in
+ * the library as a title with nothing to run. Top level only and not
+ * recursive: a game that legitimately ships an archive as data keeps it. */
+void extract_archives(const std::string &dir, const std::string &title)
+{
+    std::vector<std::string> zips;
+    int n = 0;
+    if (char **found = SDL_GlobDirectory(dir.c_str(), "*.zip",
+                                         SDL_GLOB_CASEINSENSITIVE, &n)) {
+        for (int i = 0; i < n && found[i]; ++i) {
+            if (SDL_strchr(found[i], '/')) continue;
+            zips.push_back(dir + "/" + found[i]);
+        }
+        SDL_free(found);
+    }
+    for (const std::string &z : zips) {
+        if (unzip_into(z, dir, title) > 0) SDL_RemovePath(z.c_str());
+    }
+}
+
+void remove_tree(const std::string &dir)
+{
+    int n = 0;
+    if (char **found = SDL_GlobDirectory(dir.c_str(), "*", 0, &n)) {
+        for (int i = 0; i < n && found[i]; ++i) {
+            const std::string p = dir + "/" + found[i];
+            SDL_PathInfo info;
+            if (SDL_GetPathInfo(p.c_str(), &info) &&
+                info.type == SDL_PATHTYPE_DIRECTORY)
+                remove_tree(p);
+            else
+                SDL_RemovePath(p.c_str());
+        }
+        SDL_free(found);
+    }
+    SDL_RemovePath(dir.c_str());
+}
+
+MediaResult do_download(const std::string &slug, const std::string &dest_dir)
+{
+    MediaResult r;
+    r.op = MediaOp::Download;
+
+    {   /* The server enforces this too -- rom media is stripped from every
+         * non-admin response -- but saying so here is the difference between
+         * a clear refusal and a 403 the user has to interpret. */
+        Req q; q.path = "/api/me";
+        const Resp me = http(q);
+        if (me.code != 200) { r.message = "sign in first"; return r; }
+        const Json j = me.json();
+        const Json *acct = j.find("account");
+        if (!acct || !acct->flag("isAdmin")) {
+            r.message = "downloading games needs an administrator account";
+            return r;
+        }
+    }
+
+    Req dq;
+    dq.path = std::string("/api/systems/") + kSystem + "/games/" + enc(slug);
+    const Resp d = http(dq);
+    if (d.code != 200) { r.message = d.error(); return r; }
+    const Json detail = d.json();
+
+    const Json *roms = detail.find("roms");
+    const size_t rom_count = (roms && roms->type == Json::Type::Arr) ? roms->arr.size() : 0;
+    if (rom_count == 0) { r.message = "no downloadable files for this game"; return r; }
+
+    std::string title = detail.s("title");
+    if (title.empty()) title = detail.s("name");
+    if (title.empty()) title = slug;
+    title = sanitise(title);
+    if (title.empty()) title = slug;
+
+    const std::string out_dir = dest_dir + "/" + title;
+    SDL_CreateDirectory(out_dir.c_str());
+
+    /* Straight to disk under its final name. The body is the zip the server
+     * builds, and a game is routinely larger than anything this process should
+     * hold in memory. */
+    const std::string tmp = out_dir + "/.download";
+    FILE *f = fopen(tmp.c_str(), "wb");
+    if (!f) { r.message = "could not write to " + out_dir; return r; }
+
+    Req zq;
+    zq.path = std::string("/api/systems/") + kSystem + "/games/" + enc(slug)
+            + "/zip?types=rom";
+    zq.sink_file = f;
+    zq.progress_title = title.c_str();
+    zq.timeout_s = 3600;
+    const Resp zr = http(zq);
+    fclose(f);
+    set_progress(std::string());
+
+    if (zr.code != 200) {
+        SDL_RemovePath(tmp.c_str());
+        remove_tree(out_dir);
+        /* 402 is the metering answer and deserves its own words: it is not a
+         * failure of the app or the network. */
+        r.message = (zr.code == 402) ? ("out of credits: " + zr.error()) : zr.error();
+        return r;
+    }
+
+    int written = 0;
+    if (starts_with_zip_magic(tmp)) {
+        written = unzip_into(tmp, out_dir, title);
+        SDL_RemovePath(tmp.c_str());
+    } else {
+        /* A single rom comes back as the file itself, with no name on it. The
+         * catalogue entry is where the name lives. */
+        std::string name;
+        if (roms && !roms->arr.empty()) name = sanitise(base_of(roms->arr[0].s("file")));
+        if (name.empty()) name = slug + ".zip";
+        const std::string dst = out_dir + "/" + name;
+        SDL_RemovePath(dst.c_str());
+        written = SDL_RenamePath(tmp.c_str(), dst.c_str()) ? 1 : 0;
+    }
+
+    if (written <= 0) {
+        remove_tree(out_dir);
+        r.message = "nothing was written";
+        return r;
+    }
+
+    /* An archive inside the archive: the catalogue ships plenty of them, and
+     * one left packed is a title the launcher cannot start. */
+    extract_archives(out_dir, title);
+    set_progress(std::string());
+
+    r.ok = true;
+    r.path = out_dir;
+    r.message = title + ": " + std::to_string(written) +
+                (written == 1 ? " file" : " files");
+    return r;
+}
+
 MediaResult do_artwork(const std::string &slug, const std::string &preview)
 {
     MediaResult r;
@@ -921,15 +1204,16 @@ MediaResult do_artwork(const std::string &slug, const std::string &preview)
 bool media_available(void) { return true; }
 
 /*
- * Game downloads stay Android-only for now.
+ * Downloads are offered here.
  *
- * The download is a zip that has to be unpacked into the library, and this
- * build links no zip decoder -- the Kotlin side gets one from the platform.
- * Returning false hides the page rather than offering a button that fetches an
- * archive and then cannot open it; artwork, which is what the launcher needs
- * from RetroMedia on a desktop, works fully.
+ * This is a platform question, not a permission one: the account's isAdmin
+ * flag decides whether the server will serve a game, and it is checked again
+ * before every download. What this answers is whether the app should offer the
+ * page at all -- and on a desktop it should. (On iOS it must not: the App
+ * Store does not permit a storefront for the games themselves, which is why
+ * this lives behind the same build switch as the rest of the client.)
  */
-bool media_downloads_available(void) { return false; }
+bool media_downloads_available(void) { return true; }
 
 void media_begin_status(void)
 {
@@ -964,12 +1248,9 @@ void media_begin_artwork(const std::string &slug, const std::string &preview)
     submit([slug, preview] { finish(do_artwork(slug, preview)); });
 }
 
-void media_begin_download(const std::string &slug, const std::string &)
+void media_begin_download(const std::string &slug, const std::string &dest_dir)
 {
-    MediaResult r;
-    r.op = MediaOp::Download;
-    r.message = "downloads are not available in this build (" + slug + ")";
-    finish(std::move(r));
+    submit([slug, dest_dir] { finish(do_download(slug, dest_dir)); });
 }
 
 bool media_poll(MediaResult &out)
@@ -991,9 +1272,11 @@ std::string media_last_email(void)
     return get_email();
 }
 
-/* Nothing long-running to report: the only operation that took minutes was a
- * game download, which this build does not offer. */
-std::string media_progress(void) { return std::string(); }
+std::string media_progress(void)
+{
+    std::lock_guard<std::mutex> lock(g_progress.m);
+    return g_progress.text;
+}
 
 } /* namespace retrodos */
 

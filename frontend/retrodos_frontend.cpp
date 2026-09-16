@@ -693,6 +693,84 @@ void discs_widgets(retrodos::AppConfig &cfg, const std::string &cfg_path,
     ImGui::EndChild();
 }
 
+/*
+ * The Windows half of the Library.
+ *
+ * One machine and the discs that belong to it. It exists because a Windows
+ * guest is not a DOS game and was never comfortable in that list: it has an
+ * install to get through before it is worth anything, a disc it needs while it
+ * does, and a state -- half installed, installed, running -- that no game has.
+ */
+void windows_widgets(retrodos::AppConfig &cfg, float cw,
+                     bool &jump_to_windows, bool &start_windows)
+{
+    const std::string wdir = cfg.library_root + "/Windows 98";
+    retrodos::Win98Install w;
+    const bool have = retrodos::win98_is_install_dir(wdir) &&
+                      retrodos::win98_load(wdir, w);
+    if (!have) {
+        TextDimWrapped("No Windows machine yet. The Windows Setup page makes one.");
+        return;
+    }
+
+    ImGui::Text("Windows 98");
+    ImGui::SameLine();
+    ImGui::TextDisabled("- %s", retrodos::win98_phase_name(w.phase));
+
+    const std::string blocked = retrodos::win98_blocker(w);
+    if (!blocked.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.3f, 1.0f));
+        ImGui::TextWrapped("%s", blocked.c_str());
+        ImGui::PopStyleColor();
+    }
+
+    ImGui::Spacing();
+    const bool ready = (w.phase == retrodos::Win98Phase::Run) && blocked.empty();
+    ImGui::BeginDisabled(!ready);
+    if (ImGui::Button("Start Windows", ImVec2(cw * 0.32f, 0))) start_windows = true;
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button(ready ? "Walkthrough" : "Continue setup", ImVec2(cw * 0.32f, 0)))
+        jump_to_windows = true;
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* The discs, CDs only: a Windows machine takes a CD, and the floppies in
+     * the same folder belong to the DOS side of the house. */
+    const std::vector<std::string> cds = scan_images(disc_root(cfg), true);
+    if (cds.empty()) {
+        ImGui::TextWrapped("No disc images in:");
+        ImGui::TextDisabled("%s", disc_root(cfg).c_str());
+        return;
+    }
+
+    ImGui::TextDisabled("Discs - the one in use is the machine's CD-ROM");
+    ImGui::Spacing();
+    ImGui::BeginChild("##winiso");
+    scroll_by_drag();
+    for (const std::string &path : cds) {
+        ImGui::PushID(path.c_str());
+        ImGui::TextUnformatted(base_name(path).c_str());
+        ImGui::SameLine(cw * 0.62f);
+        ImGui::TextDisabled("%s", size_label(path).c_str());
+        ImGui::SameLine(cw * 0.76f);
+        if (w.iso == path) {
+            ImGui::TextDisabled("in the drive");
+        } else if (ImGui::SmallButton("Use this disc")) {
+            w.iso = path;
+            retrodos::win98_save(w);
+        }
+        ImGui::PopID();
+    }
+    ImGui::Spacing();
+    ImGui::Separator();
+    TextDimWrapped("While Windows is running, Esc then Discs and disks swaps the "
+                   "disc without stopping it.");
+    ImGui::EndChild();
+}
+
 std::string root_label(const std::string &root)
 {
 #if defined(__APPLE__)
@@ -1355,13 +1433,17 @@ int main(int argc, char **argv)
     /* The page drawn on the previous frame, so a page can tell that it has
      * just been opened. */
     Page page_last_frame = Page::Library;
-    /* Which half of the Library is showing: the game folders, or the disc
-     * images. Not a Page of its own -- it is one list or the other of the same
-     * thing, "what you have". */
-    bool show_discs = false;
+    /* Which half of the Library is showing. Not Pages of their own -- they are
+     * different lists of the same thing, "what you have". Windows appears only
+     * once there is a machine to show. */
+    enum class LibView { Games, Discs, Windows };
+    LibView lib_view = LibView::Games;
     /* Set by the Discs list when a disc is chosen for Windows, so the
      * walkthrough opens on the step that was waiting for it. */
     bool jump_to_windows = false;
+    /* Set by the Windows list. Acted on after it has finished drawing, because
+     * launch() tears down this frame's UI state. */
+    bool start_windows = false;
 
     std::thread engine;
     SDL_Texture *fb_tex = nullptr;
@@ -2316,7 +2398,7 @@ int main(int argc, char **argv)
                     if (on) ImGui::PopStyleColor();
                 };
 
-                nav("Library", Page::Library);
+                nav("DOS Library", Page::Library);
                 if (retrodos::media_available()) {
                     nav("Artwork", Page::Artwork);
                     /* Two independent gates. The platform one comes first and
@@ -2380,7 +2462,7 @@ int main(int argc, char **argv)
 
                 /* ---- Library ---- */
                 if (page == Page::Library) {
-                    ImGui::TextUnformatted("Library");
+                    ImGui::TextUnformatted("DOS Library");
                     {
                         const float bw2 = ImGui::CalcTextSize("Add game").x +
                                           ImGui::GetStyle().FramePadding.x * 2.0f;
@@ -2420,23 +2502,40 @@ int main(int argc, char **argv)
                      * and this chooses which.
                      */
                     {
-                        const float half = (ImGui::GetContentRegionAvail().x -
-                                            ImGui::GetStyle().ItemSpacing.x) * 0.5f;
-                        auto kind_chip = [&](const char *label, bool want) {
-                            const bool on = (show_discs == want);
+                        /* Windows only once there is one. A chip for a machine
+                         * that has never been created is a promise of a page
+                         * with nothing on it. */
+                        const bool have_windows =
+                            retrodos::win98_is_install_dir(cfg.library_root + "/Windows 98");
+                        if (!have_windows && lib_view == LibView::Windows)
+                            lib_view = LibView::Games;
+
+                        const int n = have_windows ? 3 : 2;
+                        const float w = (ImGui::GetContentRegionAvail().x -
+                                         ImGui::GetStyle().ItemSpacing.x * (float)(n - 1))
+                                      / (float)n;
+                        auto kind_chip = [&](const char *label, LibView want) {
+                            const bool on = (lib_view == want);
                             if (on) ImGui::PushStyleColor(ImGuiCol_Button,
                                         ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                            if (ImGui::Button(label, ImVec2(half, 0))) show_discs = want;
+                            if (ImGui::Button(label, ImVec2(w, 0))) lib_view = want;
                             if (on) ImGui::PopStyleColor();
                         };
-                        kind_chip("DOS games", false);
+                        kind_chip("DOS games", LibView::Games);
                         ImGui::SameLine();
-                        kind_chip("Discs", true);
+                        kind_chip("Discs", LibView::Discs);
+                        if (have_windows) {
+                            ImGui::SameLine();
+                            kind_chip("Windows", LibView::Windows);
+                        }
                     }
                     ImGui::Spacing();
 
-                    if (show_discs) {
-                        discs_widgets(cfg, cfg_path, cw, jump_to_windows);
+                    if (lib_view != LibView::Games) {
+                        if (lib_view == LibView::Windows)
+                            windows_widgets(cfg, cw, jump_to_windows, start_windows);
+                        else
+                            discs_widgets(cfg, cfg_path, cw, jump_to_windows);
                         if (jump_to_windows) {
                             /* Handled here rather than inside the list, which
                              * is mid-draw and must not change the page out
@@ -2444,6 +2543,13 @@ int main(int argc, char **argv)
                             jump_to_windows = false;
                             win_stale = true;
                             page = Page::Windows;
+                        }
+                        if (start_windows) {
+                            start_windows = false;
+                            Game g;
+                            g.name = "Windows 98";
+                            g.dir  = cfg.library_root + "/Windows 98";
+                            launch(g);
                         }
                     } else {
                         ImGui::SetNextItemWidth(cw * 0.6f);
@@ -2463,6 +2569,7 @@ int main(int argc, char **argv)
                         {
                             bool has[27] = { false };   /* 0-25 = A-Z, 26 = '#' */
                             for (const Game &g : games) {
+                                if (g.is_machine) continue;
                                 if (g.initial >= 'A' && g.initial <= 'Z') has[g.initial - 'A'] = true;
                                 else has[26] = true;
                             }
@@ -2507,18 +2614,32 @@ int main(int argc, char **argv)
                             if (has[26]) chip("#", '#');
                         }
 
+                        /*
+                         * A Windows machine is not a DOS game and does not
+                         * belong in the list of them. It has its own page --
+                         * Windows Setup -- which knows how far through the
+                         * install it is and can start it; here it was one more
+                         * row to scroll past, under a letter that promised a
+                         * game and delivered an operating system.
+                         *
+                         * It stays in `games` because launching still goes
+                         * through that list; it is only hidden from this view.
+                         */
                         std::vector<int> shown;
+                        int dos_games = 0;
                         shown.reserve(games.size());
                         for (int i = 0; i < (int)games.size(); ++i) {
+                            if (games[i].is_machine) continue;
+                            ++dos_games;
                             if (filter_letter && games[i].initial != filter_letter) continue;
                             if (search[0] && !SDL_strcasestr(games[i].name.c_str(), search)) continue;
                             shown.push_back(i);
                         }
-                        ImGui::Text("%zu of %zu", shown.size(), games.size());
+                        ImGui::Text("%zu of %d", shown.size(), dos_games);
                         ImGui::SameLine();
                         ImGui::TextDisabled("  %s", root_label(cfg.library_root).c_str());
 
-                        if (games.empty()) {
+                        if (dos_games == 0) {
                             ImGui::Spacing();
                             ImGui::TextWrapped("No games found in:");
                             ImGui::TextWrapped("%s", root_label(cfg.library_root).c_str());
