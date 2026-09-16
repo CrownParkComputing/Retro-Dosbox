@@ -80,6 +80,12 @@ struct Game {
      * Blaster -- and threading those through build_conf as special cases would
      * put Windows-only behaviour in every game's way. */
     std::string conf_override;
+
+    /* A Windows machine rather than a DOS game. Its folder holds a disk image
+     * and a recorded install phase, never an executable, so the Library must
+     * not offer it a DOS "Setup" program or describe it as having no runnable
+     * -- both of which it did, and both of which ended at a C:\> prompt. */
+    bool        is_machine = false;
 };
 
 bool ends_with_ci(const std::string &s, const char *suffix)
@@ -240,6 +246,21 @@ bool is_support_script(const std::string &f)
  * in ways that look like emulation bugs. */
 void find_runnable(const std::string &dir, Game &g)
 {
+    /* A Windows machine is recognised before anything else is looked at.
+     *
+     * Its folder does contain executables -- an installed Windows is full of
+     * them -- but none of them is what starting it means, and picking one at
+     * random is how the Library came to run COMMAND.COM inside a mounted
+     * Windows directory and call it a game. */
+    if (retrodos::win98_is_install_dir(dir)) {
+        retrodos::Win98Install w;
+        g.is_machine = true;
+        g.run = retrodos::win98_load(dir, w)
+                    ? retrodos::win98_phase_name(w.phase)
+                    : "Windows 98";
+        return;
+    }
+
     /* A conf shipped with the game wins over anything guessed from the
      * directory listing. */
     g.autoexec      = bundled_autoexec(dir);
@@ -1308,6 +1329,47 @@ int main(int argc, char **argv)
             find_runnable(dest, g);   /* only now can we look inside */
         }
 
+        /*
+         * A Windows machine is not a DOS game, whichever screen started it.
+         *
+         * Its folder holds a disk image and a phase, not an executable, so
+         * build_conf mounts the folder as C: and drops the user at a DOS
+         * prompt -- which is what the Library's own launch and Setup buttons
+         * did. Checked here rather than in each caller because this is the one
+         * place every launch passes through: the Library, the wizard, a
+         * pending launch after a restart.
+         */
+        if (g.conf_override.empty() && retrodos::win98_is_install_dir(g.dir)) {
+            retrodos::Win98Install lw;
+            /* win98_load already reconciles the recorded phase against the
+             * files -- and now against the contents of the disk image -- so
+             * lw.phase is the truth about this machine, not what was written
+             * down last. */
+            const bool lw_ok = retrodos::win98_load(g.dir, lw);
+            if (!lw_ok) lw.dir = g.dir;
+            if (!retrodos::win98_blocker(lw).empty()) {
+                /* Something it needs is missing -- usually the CD. Booting
+                 * anyway produces a black machine that explains nothing, so
+                 * hand the user back to the page that can say what is wrong. */
+                win_stale = true;
+                page = Page::Windows;
+                view = View::Shell;
+                return;
+            }
+            /* Write it back, so the wizard and the Library row stop
+             * describing a machine that has already moved on. Only when the
+             * state file actually read: saving over one that would not load
+             * would throw the CD path away with it. */
+            if (lw_ok) {
+                retrodos::win98_save(lw);
+                win_stale = true;
+            }
+
+            g.conf_override   = retrodos::win98_conf(lw);
+            win_running_dir   = lw.dir;
+            win_running_phase = lw.phase;
+        }
+
         Settings s = cfg.defaults;
         retrodos::load_game_settings(games_dir, g.name, s);  /* overrides win */
         active = s;
@@ -1345,24 +1407,18 @@ int main(int argc, char **argv)
         view = View::Shell;   /* never the wizard: a restart means we ran */
 
         /*
-         * A Windows machine cannot be resumed as an ordinary library entry.
-         *
-         * Its launch is driven by a conf_override that the wizard builds from
-         * the install's phase; going through the games list instead loses it,
-         * and build_conf then mounts the machine's folder as C: and drops the
-         * user at a DOS prompt with no Windows and no explanation. Rebuild the
-         * conf from the saved phase instead.
+         * A Windows machine may not be in `games` at all -- the list is built
+         * from the library root, and a machine created by the wizard in this
+         * session is only there after a rescan. Hand launch() the folder and
+         * let it recognise what is in it, which is the same path the Library
+         * takes.
          */
         {
-            retrodos::Win98Install pw;
             const std::string wdir = cfg.library_root + "/" + want;
-            if (retrodos::win98_is_install_dir(wdir) &&
-                retrodos::win98_load(wdir, pw) &&
-                retrodos::win98_blocker(pw).empty()) {
+            if (retrodos::win98_is_install_dir(wdir)) {
                 Game g;
                 g.name = want;
                 g.dir  = wdir;
-                g.conf_override = retrodos::win98_conf(pw);
                 launch(g);
             }
         }
@@ -2236,7 +2292,16 @@ int main(int argc, char **argv)
                                     ImGui::PopClipRect();
                                 }
                                 ImGui::SameLine(cw * 0.86f);
-                                if (ImGui::SmallButton("Setup")) {
+                                /* A machine has no per-game DOS settings to
+                                 * open -- its whole configuration comes from
+                                 * the install's phase -- so the button beside
+                                 * it goes to the walkthrough that owns it. */
+                                if (games[gi].is_machine) {
+                                    if (ImGui::SmallButton("Wizard")) {
+                                        win_stale = true;   /* re-read the phase */
+                                        page = Page::Windows;
+                                    }
+                                } else if (ImGui::SmallButton("Setup")) {
                                     selected = gi; page = Page::Settings;
                                 }
                                 ImGui::PopID();
@@ -2784,6 +2849,16 @@ int main(int argc, char **argv)
                         ImGui::Spacing();
                         ImGui::Separator();
                         ImGui::Spacing();
+                        /* Read from the disk image rather than assumed: the app
+                         * can see that Windows is on there, and saying so is
+                         * the difference between asking the user to confirm
+                         * something and asking them to guess. */
+                        if (retrodos::win98_installed(w)) {
+                            ImGui::PushStyleColor(ImGuiCol_Text,
+                                                  ImVec4(0.55f, 0.85f, 0.55f, 1.0f));
+                            ImGui::TextWrapped("Windows is on the hard disk.");
+                            ImGui::PopStyleColor();
+                        }
                         ImGui::TextWrapped("Once Windows reaches its desktop and asks "
                                            "you nothing more, it is installed:");
                         if (ImGui::Button("Windows is installed", ImVec2(cw * 0.5f, 0))) {
