@@ -27,6 +27,7 @@
 
 #include "retrodos_host.h"
 #include "retrodos_brand.h"
+#include "retrodos_win98.h"
 #include "retrodos_config.h"
 #include "retrodos_osk.h"
 #include "retrodos_saf.h"
@@ -73,6 +74,12 @@ struct Game {
     std::string audio_profile;     /* its sound sections, verbatim */
     bool        is_demo  = false;  /* bundled content: never staged, never scanned */
     std::string slug;              /* RetroMedia catalogue slug, when matched */
+    /* A complete dosbox.conf to use verbatim instead of building one from the
+     * Settings. A Windows guest needs sections a DOS game never wants -- a
+     * reported DOS version of 7.1, int13 v86 fakery, a particular Sound
+     * Blaster -- and threading those through build_conf as special cases would
+     * put Windows-only behaviour in every game's way. */
+    std::string conf_override;
 };
 
 bool ends_with_ci(const std::string &s, const char *suffix)
@@ -1088,7 +1095,7 @@ int main(int argc, char **argv)
     refresh();
 
     enum class View { Wizard, Shell, Emulator };
-    enum class Page { Library, Artwork, Downloads, Settings, Input, Demo, About };
+    enum class Page { Library, Artwork, Downloads, Settings, Input, Windows, Demo, About };
     View view = cfg.wizard_done ? View::Shell : View::Wizard;
     Page page = Page::Library;
 
@@ -1235,11 +1242,13 @@ int main(int argc, char **argv)
         /* A conf shipped with the game states how it starts; use it verbatim
          * rather than the guessed program name. */
         const bool use_profile = !g.autoexec.empty();
-        const std::string conf = retrodos::build_conf(
-            s, g.name, g.dir,
-            use_profile ? g.autoexec : g.run,
-            use_profile ? true : g.run_raw,
-            g.audio_profile);
+        const std::string conf = !g.conf_override.empty()
+            ? g.conf_override
+            : retrodos::build_conf(
+                s, g.name, g.dir,
+                use_profile ? g.autoexec : g.run,
+                use_profile ? true : g.run_raw,
+                g.audio_profile);
         if (SDL_IOStream *io = SDL_IOFromFile(conf_path.c_str(), "w")) {
             SDL_WriteIO(io, conf.data(), conf.size());
             SDL_CloseIO(io);
@@ -1819,6 +1828,7 @@ int main(int argc, char **argv)
                 nav("Input",    Page::Input);
                 ImGui::Spacing();
                 ImGui::Separator();
+                nav("Windows", Page::Windows);
                 nav("Demo",  Page::Demo);
                 nav("About", Page::About);
 
@@ -2262,6 +2272,168 @@ int main(int argc, char **argv)
                 }
 
                 /* ---- Demo ---- */
+                else if (page == Page::Windows) {
+                    ImGui::TextUnformatted("Windows 98");
+                    ImGui::Separator();
+
+                    /* The machine lives in the library folder like a game, so
+                     * once installed it appears in the Library and starts the
+                     * same way everything else does. */
+                    const std::string wdir = cfg.library_root + "/Windows 98";
+
+                    static retrodos::Win98Install w;
+                    static bool w_loaded = false;
+                    if (!w_loaded) {
+                        if (!retrodos::win98_load(wdir, w)) w.dir = wdir;
+                        w_loaded = true;
+                    }
+
+                    /* Observable facts beat remembered state: if the disk
+                     * image is there, the first step is done whatever the file
+                     * says. This is what makes the page correct after a
+                     * crash, a manual delete, or a copy from another device. */
+                    const bool have_disk =
+                        retrodos::win98_blocker(w).find("hard disk") == std::string::npos &&
+                        w.phase != retrodos::Win98Phase::Create;
+                    if (w.phase == retrodos::Win98Phase::Create) {
+                        retrodos::Win98Install probe = w;
+                        probe.phase = retrodos::Win98Phase::Install;
+                        if (retrodos::win98_blocker(probe).find("hard disk") == std::string::npos) {
+                            w.phase = retrodos::Win98Phase::Install;
+                            retrodos::win98_save(w);
+                        }
+                    }
+                    (void)have_disk;
+
+                    TextDimWrapped("Runs a real copy of Windows 98 in the "
+                                   "emulator, following DOSBox-X's own guide. "
+                                   "You supply the CD; nothing is downloaded.");
+                    ImGui::Spacing();
+
+                    /* ---- step 1: the CD ---- */
+                    ImGui::TextUnformatted("1.  Your Windows 98 CD");
+                    static char iso_buf[1024] = {0};
+                    static bool iso_primed = false;
+                    if (!iso_primed) {
+                        SDL_strlcpy(iso_buf, w.iso.c_str(), sizeof(iso_buf));
+                        iso_primed = true;
+                    }
+                    ImGui::SetNextItemWidth(cw * 0.72f);
+                    if (ImGui::InputText("##iso", iso_buf, sizeof(iso_buf)))
+                        w.iso = iso_buf;
+                    ImGui::SameLine();
+                    if (ImGui::Button("Use this disc")) {
+                        w.iso = iso_buf;
+                        retrodos::win98_save(w);
+                    }
+
+                    /* Anything that looks like a disc image in the library
+                     * folder, offered as a button -- typing an absolute path
+                     * on a handheld with an on-screen keyboard is miserable. */
+                    {
+                        int offered = 0;
+                        if (SDL_Storage *st = SDL_OpenFileStorage(cfg.library_root.c_str())) {
+                            if (char **found = SDL_GlobStorageDirectory(
+                                    st, nullptr, "*.iso", SDL_GLOB_CASEINSENSITIVE, nullptr)) {
+                                for (int i = 0; found[i] && offered < 6; ++i) {
+                                    /* One level only: the glob recurses, and a
+                                     * nested hit is a path DOS cannot mount. */
+                                    if (SDL_strchr(found[i], '/')) continue;
+                                    ImGui::PushID(i);
+                                    if (ImGui::Button(found[i])) {
+                                        w.iso = cfg.library_root + "/" + found[i];
+                                        SDL_strlcpy(iso_buf, w.iso.c_str(), sizeof(iso_buf));
+                                        retrodos::win98_save(w);
+                                    }
+                                    ImGui::PopID();
+                                    ++offered;
+                                }
+                                SDL_free(found);
+                            }
+                            SDL_CloseStorage(st);
+                        }
+                        if (!offered)
+                            TextDimWrapped("Put the .iso in your games folder and it "
+                                           "will be offered here.");
+                    }
+
+                    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+
+                    /* ---- step 2: the disk ---- */
+                    ImGui::TextUnformatted("2.  The hard disk");
+                    static int size_choice = 0;
+                    static const char *kSizes[] = { "8 GB (recommended)", "2 GB",
+                                                    "16 GB", "32 GB" };
+                    static const int   kSizeMb[] = { 0, 2048, 16384, 32768 };
+                    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+                    ImGui::Combo("Size", &size_choice, kSizes, (int)SDL_arraysize(kSizes));
+                    w.size_mb = kSizeMb[size_choice];
+                    TextDimWrapped("Over 512 MB is formatted FAT32. Windows 98's own "
+                                   "IDE driver cannot handle a volume above 128 GB.");
+
+                    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+
+                    /* ---- step 3: run it ---- */
+                    ImGui::TextUnformatted("3.  Install");
+                    ImGui::Text("Next step: %s", retrodos::win98_phase_name(w.phase));
+
+                    const std::string blocked = retrodos::win98_blocker(w);
+                    if (!blocked.empty()) {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.3f, 1.0f));
+                        ImGui::TextWrapped("%s", blocked.c_str());
+                        ImGui::PopStyleColor();
+                    }
+
+                    ImGui::BeginDisabled(!blocked.empty());
+                    if (ImGui::Button(w.phase == retrodos::Win98Phase::Create
+                                          ? "Create the disk"
+                                          : (w.phase == retrodos::Win98Phase::Run
+                                                 ? "Start Windows 98"
+                                                 : "Run this step"),
+                                      ImVec2(cw * 0.55f, 0))) {
+                        SDL_CreateDirectory(w.dir.c_str());
+                        retrodos::win98_save(w);
+                        Game g;
+                        g.name = "Windows 98";
+                        g.dir  = w.dir;
+                        g.conf_override = retrodos::win98_conf(w);
+                        launch(g);
+                    }
+                    ImGui::EndDisabled();
+
+                    /* The two transitions the app cannot observe. SETUP
+                     * rebooting and Windows finally being installed both look
+                     * identical from out here -- the engine simply exits -- so
+                     * the person who just watched it is asked rather than
+                     * guessed at. */
+                    if (w.phase == retrodos::Win98Phase::Install) {
+                        ImGui::Spacing();
+                        if (ImGui::Button("Setup has restarted - carry on")) {
+                            w.phase = retrodos::Win98Phase::Continue;
+                            retrodos::win98_save(w);
+                        }
+                        TextDimWrapped("Press this when the installer reboots and you "
+                                       "are back at a DOS prompt.");
+                    } else if (w.phase == retrodos::Win98Phase::Continue) {
+                        ImGui::Spacing();
+                        if (ImGui::Button("Windows is installed")) {
+                            w.phase = retrodos::Win98Phase::Run;
+                            retrodos::win98_save(w);
+                        }
+                    } else if (w.phase == retrodos::Win98Phase::Run) {
+                        ImGui::Spacing();
+                        ImGui::Checkbox("Faster CPU core now that setup is done",
+                                        &w.fast_core_after_install);
+                        if (ImGui::IsItemDeactivatedAfterEdit()) retrodos::win98_save(w);
+                        TextDimWrapped("Installation must run on the slow interpreter; "
+                                       "afterwards the faster core is usually fine.");
+                    }
+
+                    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+                    TextDimWrapped("Your CD must be an OEM Full edition - those are the "
+                                   "ones that boot. No Windows files are bundled with "
+                                   "this app or downloaded by it.");
+                }
                 else if (page == Page::Demo) {
                     ImGui::TextUnformatted("Demo");
                     ImGui::Separator();
