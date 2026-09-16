@@ -40,6 +40,8 @@ const char *pad_button_name(int b)
     case PAD_RT:     return "RT";
     case PAD_START:  return "Start";
     case PAD_SELECT: return "Select";
+    case PAD_L3:     return "L3";
+    case PAD_R3:     return "R3";
     default:         return "?";
     }
 }

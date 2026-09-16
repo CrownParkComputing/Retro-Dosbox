@@ -34,6 +34,10 @@ enum PadButton {
     PAD_L, PAD_R,
     PAD_LT, PAD_RT,
     PAD_START, PAD_SELECT,
+    /* Appended after the originals: the enum values are persisted in saved
+     * layouts and binding tables, so inserting earlier would silently remap
+     * every existing config. */
+    PAD_L3, PAD_R3,
     PAD_COUNT
 };
 

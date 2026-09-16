@@ -91,22 +91,27 @@ export PKG_CONFIG_LIBDIR="$SDL3_PREFIX/lib/pkgconfig"
 # ---------------------------------------------------------------------------
 # 2. DOSBox-X tree, configured for Android
 # ---------------------------------------------------------------------------
-if [ ! -d "$TREE" ]; then
-    echo "==> staging a private tree for $ANDROID_ABI"
-    mkdir -p "$TREE"
-    # Copy the TRACKED files only, at their current working-tree content. A
-    # plain recursive copy also drags in the host build's config.h, Makefiles
-    # and .o files -- and then the `[ ! -f config.h ]` guard below skips
-    # configure entirely, so the Android compiler happily rebuilds everything
-    # against the HOST configuration. That fails at the very end with
-    #   ld.lld: error: unable to find library -lslirp
-    # which reads like a missing Android dependency and is nothing of the kind.
-    # Build artifacts are untracked, so listing tracked files excludes them
-    # while still picking up uncommitted source edits.
-    git -C "$ROOT" ls-files -z \
-        | tar -C "$ROOT" --null -T - -cf - \
-        | tar -C "$TREE" -xf -
-fi
+# Copy the TRACKED files only, at their current working-tree content. A
+# plain recursive copy also drags in the host build's config.h, Makefiles
+# and .o files -- and then the `[ ! -f config.h ]` guard below skips
+# configure entirely, so the Android compiler happily rebuilds everything
+# against the HOST configuration. That fails at the very end with
+#   ld.lld: error: unable to find library -lslirp
+# which reads like a missing Android dependency and is nothing of the kind.
+# Build artifacts are untracked, so listing tracked files excludes them
+# while still picking up uncommitted source edits.
+#
+# EVERY run, not only the first. The tree used to be staged once and left
+# alone, which meant an edit to core/src after the first build was silently
+# never compiled: make saw an old copy, said "Nothing to be done", and the
+# script went on to package a library that did not contain the change. tar
+# preserves source mtimes, so unchanged files stay old and make still
+# rebuilds only what actually changed.
+echo "==> syncing the private tree for $ANDROID_ABI"
+mkdir -p "$TREE"
+git -C "$ROOT" ls-files -z \
+    | tar -C "$ROOT" --null -T - -cf - \
+    | tar -C "$TREE" -xf -
 
 cd "$TREE"
 [ -f configure ] || ./autogen.sh

@@ -57,9 +57,9 @@ struct Settings {
      * on a control scheme: Descent wants the arrows and Ctrl, Keen wants Ctrl
      * and Alt for jump and pogo, and a flight sim wants the stick.
      *
-     * 0 means unbound. Indexed by PadButton; sized to PAD_COUNT, which is 14.
+     * 0 means unbound. Indexed by PadButton; sized to PAD_COUNT, which is 16.
      */
-    int         pad_keys[14] = {0};
+    int         pad_keys[16] = {0};
 
     /* Drive the emulated game port as well as (or instead of) sending keys.
      * Most DOS games are keyboard games, so keys are the default; a game that
@@ -73,7 +73,7 @@ struct Settings {
     bool        onscreen_pad        = true;
 
     bool operator==(const Settings &o) const {
-        for (int i = 0; i < 14; ++i)
+        for (int i = 0; i < 16; ++i)
             if (pad_keys[i] != o.pad_keys[i]) return false;
         return cycles_max == o.cycles_max && cycles_fixed == o.cycles_fixed &&
                core_dynamic == o.core_dynamic && memsize == o.memsize &&
@@ -105,6 +105,13 @@ struct AppConfig {
      * about the pad -- it is one layout for the device, not per game, because
      * where a thumb comfortably rests does not change with the title. */
     std::string pad_layout;
+
+    /* Name of a game to start immediately on boot, then clear. Written just
+     * before the Android process restart that a second engine run requires
+     * (the engine cannot run twice in one process); the fresh process reads
+     * it, clears it FIRST so a bad game cannot cause a restart loop, and
+     * launches. Empty in every steady state. */
+    std::string pending_launch;
 };
 
 bool load_app_config(const std::string &path, AppConfig &out);

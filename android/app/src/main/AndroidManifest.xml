@@ -33,5 +33,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Restart trampoline. Its own process, so it survives the main
+             process exiting and can start MainActivity fresh. The engine
+             cannot run twice in one process; this is how the frontend gets a
+             new one between games. -->
+        <activity
+            android:name=".RestartActivity"
+            android:process=":restart"
+            android:exported="false"
+            android:theme="@android:style/Theme.NoDisplay" />
     </application>
 </manifest>

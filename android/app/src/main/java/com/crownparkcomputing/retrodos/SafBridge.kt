@@ -309,6 +309,36 @@ object SafBridge {
         }
     }
 
+    /* ---------------------------------------------------------------- */
+    /* Process restart                                                   */
+    /* ---------------------------------------------------------------- */
+
+    /**
+     * Kill this process and start the app again, via a trampoline activity
+     * that lives in its own `:restart` process.
+     *
+     * This exists because DOSBox-X cannot run twice in one process: the
+     * engine's thousands of globals are written once at startup and torn down
+     * asymmetrically, so a second dosbox_x_main() boots a machine that
+     * triple-faults. Rather than chase every global, the frontend notes which
+     * game to auto-launch and asks for a fresh process; the relaunch happens
+     * behind a game's natural loading moment.
+     *
+     * Kept here rather than in a new bridge object so the native side only
+     * ever has to find one class. Called from native code via JNI.
+     */
+    @JvmStatic
+    fun restart() {
+        val a = activity ?: return
+        a.runOnUiThread {
+            val i = Intent(a, RestartActivity::class.java)
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            a.startActivity(i)
+            a.finishAffinity()
+            Runtime.getRuntime().exit(0)
+        }
+    }
+
     private fun copyTree(c: Context, src: DocumentFile, dest: File) {
         for (child in src.listFiles()) {
             val name = child.name ?: continue

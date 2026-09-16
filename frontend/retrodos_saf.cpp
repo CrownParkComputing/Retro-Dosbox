@@ -172,6 +172,14 @@ bool saf_stage_game(const std::string &name, const std::string &dest_dir)
     return ok == JNI_TRUE;
 }
 
+bool android_restart_app(void)
+{
+    /* The Java side finishes the activity and exits the process, so on
+     * success this call never really "returns" for long -- the caller should
+     * simply stop doing work. */
+    return call_void("restart");
+}
+
 } /* namespace retrodos */
 
 #else /* !__ANDROID__ */
@@ -184,6 +192,7 @@ std::vector<std::string> saf_list_games(void) { return {}; }
 bool saf_stage_game(const std::string &, const std::string &) { return false; }
 void saf_pick_game(const std::string &) {}
 std::string saf_install_status(void) { return std::string(); }
+bool android_restart_app(void) { return false; }
 } /* namespace retrodos */
 
 #endif

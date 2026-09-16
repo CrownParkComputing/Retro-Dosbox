@@ -6,6 +6,8 @@
  * game being launched is STAGED into the app's own directory, which is a real
  * path. See retrodos_saf.cpp. Stubs on non-Android, so callers need no #ifdef.
  */
+/* Also home to android_restart_app(): not SAF, but it shares the JNI bridge
+ * class, and a second bridge for one function would be pure ceremony. */
 #ifndef RETRODOS_SAF_H
 #define RETRODOS_SAF_H
 
@@ -37,6 +39,14 @@ void saf_pick_game(const std::string &dest_root);
 
 /** Progress of the last saf_pick_game(), or empty when nothing is happening. */
 std::string saf_install_status(void);
+
+/** Kill this process and start the app again (Android's phoenix trampoline).
+ *  The engine cannot run twice in one process -- a second dosbox_x_main()
+ *  boots a machine that triple-faults -- so the frontend records which game to
+ *  auto-launch and asks for a fresh process instead. Returns false where a
+ *  restart is not available (desktop, iOS), in which case the caller falls
+ *  back to the in-process launch and takes its chances. */
+bool android_restart_app(void);
 
 } /* namespace retrodos */
 

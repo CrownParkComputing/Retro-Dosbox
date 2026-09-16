@@ -21,6 +21,7 @@
 #include <SDL3/SDL_main.h>
 
 #include "imgui.h"
+#include "imgui_internal.h"     /* ClearActiveID, for drag-scrolling lists */
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlrenderer3.h"
 
@@ -430,6 +431,34 @@ void TextDimWrapped(const char *text)
     ImGui::PopStyleColor();
 }
 
+/* Dragging the list scrolls the list.
+ *
+ * ImGui's answer to overflow is a scrollbar, and on a touch screen that is the
+ * wrong answer: the bar is a few pixels wide, and the natural gesture -- put a
+ * finger on the content and pull -- either does nothing or presses whatever
+ * row it landed on. Called inside a scrolling region each frame, this turns a
+ * mostly-vertical drag into scrolling and cancels the press it started on, so
+ * a tap still selects and a pull never does.
+ *
+ * Horizontal drags are left alone deliberately: that is how a slider is set,
+ * and stealing it would break every slider that shares a page with this. */
+void scroll_by_drag()
+{
+    ImGuiIO &io = ImGui::GetIO();
+    if (!ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem))
+        return;
+    /* Below the threshold a touch is a tap; only past it does it become a
+     * scroll. Scaled from the font so it tracks the UI scale. */
+    const float thr = ImGui::GetFontSize() * 0.35f;
+    if (!ImGui::IsMouseDragging(ImGuiMouseButton_Left, thr)) return;
+    const ImVec2 d = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left, thr);
+    if (SDL_fabsf(d.y) <= SDL_fabsf(d.x)) return;
+    ImGui::SetScrollY(ImGui::GetScrollY() - io.MouseDelta.y);
+    /* The row the finger started on is mid-press by now; without this the
+     * scroll would end by activating it. */
+    ImGui::ClearActiveID();
+}
+
 /* What the user should see as "the library". Once a folder is granted, the
  * app-private path is only a staging area and showing it is actively
  * misleading -- it is not where their games are. */
@@ -651,7 +680,35 @@ const KeyChoice kKeyChoices[] = {
     { SDL_SCANCODE_F1, "F1" }, { SDL_SCANCODE_F2, "F2" }, { SDL_SCANCODE_F3, "F3" },
     { SDL_SCANCODE_F4, "F4" }, { SDL_SCANCODE_F5, "F5" }, { SDL_SCANCODE_F6, "F6" },
     { SDL_SCANCODE_F7, "F7" }, { SDL_SCANCODE_F8, "F8" }, { SDL_SCANCODE_F9, "F9" },
-    { SDL_SCANCODE_F10, "F10" },
+    { SDL_SCANCODE_F10, "F10" }, { SDL_SCANCODE_F11, "F11" }, { SDL_SCANCODE_F12, "F12" },
+    /* The rest of the keyboard. A game's setup can demand any key at all --
+     * flight sims bind the keypad, Build games bind punctuation -- and a
+     * binder that cannot offer the key the game insists on is a dead end. */
+    { SDL_SCANCODE_RCTRL,        "RCtrl"    },
+    { SDL_SCANCODE_RALT,         "RAlt"     },
+    { SDL_SCANCODE_RSHIFT,       "RShift"   },
+    { SDL_SCANCODE_COMMA,        ","        },
+    { SDL_SCANCODE_PERIOD,       "."        },
+    { SDL_SCANCODE_SLASH,        "/"        },
+    { SDL_SCANCODE_SEMICOLON,    ";"        },
+    { SDL_SCANCODE_APOSTROPHE,   "'"        },
+    { SDL_SCANCODE_LEFTBRACKET,  "["        },
+    { SDL_SCANCODE_RIGHTBRACKET, "]"        },
+    { SDL_SCANCODE_MINUS,        "-"        },
+    { SDL_SCANCODE_EQUALS,       "="        },
+    { SDL_SCANCODE_GRAVE,        "`"        },
+    { SDL_SCANCODE_BACKSLASH,    "\\"       },
+    { SDL_SCANCODE_KP_0, "KP 0" }, { SDL_SCANCODE_KP_1, "KP 1" },
+    { SDL_SCANCODE_KP_2, "KP 2" }, { SDL_SCANCODE_KP_3, "KP 3" },
+    { SDL_SCANCODE_KP_4, "KP 4" }, { SDL_SCANCODE_KP_5, "KP 5" },
+    { SDL_SCANCODE_KP_6, "KP 6" }, { SDL_SCANCODE_KP_7, "KP 7" },
+    { SDL_SCANCODE_KP_8, "KP 8" }, { SDL_SCANCODE_KP_9, "KP 9" },
+    { SDL_SCANCODE_KP_ENTER,    "KP Enter" },
+    { SDL_SCANCODE_KP_PLUS,     "KP +"     },
+    { SDL_SCANCODE_KP_MINUS,    "KP -"     },
+    { SDL_SCANCODE_KP_MULTIPLY, "KP *"     },
+    { SDL_SCANCODE_KP_DIVIDE,   "KP /"     },
+    { SDL_SCANCODE_KP_PERIOD,   "KP ."     },
 };
 
 const char *key_name(int scancode)
@@ -671,9 +728,10 @@ void controls_widgets(Settings &s)
     ImGui::Spacing();
     ImGui::Checkbox("Buttons send keys", &s.pad_sends_keys);
     ImGui::Checkbox("Buttons drive the joystick port", &s.pad_sends_joystick);
-    ImGui::TextDisabled("Most DOS games are keyboard games, so keys are the\n"
-                        "default. Turn the joystick on only for titles that\n"
-                        "actually support one.");
+    TextDimWrapped("Most DOS games are keyboard games, so keys are the default. "
+                   "Turn the joystick on for titles that support one: the game "
+                   "then finds a stick on the game port from the moment it "
+                   "starts, with A and B as its two buttons.");
 
     ImGui::Spacing();
     ImGui::TextUnformatted("Key for each button");
@@ -692,6 +750,9 @@ void controls_widgets(Settings &s)
                 ImGui::SetNextItemWidth(col - ImGui::GetFontSize() * 4.5f);
                 if (ImGui::BeginCombo(retrodos::pad_button_name(b),
                                       key_name(s.pad_keys[b]))) {
+                    /* The popup is its own window, and the key list is long:
+                     * a finger must be able to pull it, not hunt the bar. */
+                    scroll_by_drag();
                     for (const KeyChoice &k : kKeyChoices) {
                         const bool sel = (s.pad_keys[b] == k.scancode);
                         if (ImGui::Selectable(k.name, sel)) s.pad_keys[b] = k.scancode;
@@ -983,6 +1044,7 @@ int main(int argc, char **argv)
     unsigned gp_buttons = 0;      /* PAD_* bits from a physical gamepad */
     int      gp_axis_x = 0, gp_axis_y = 0;   /* -1000..1000, analog stick */
     unsigned pad_prev = 0;        /* last mask applied to the guest */
+    bool     joy_primed = false;  /* game-port stick announced to the guest */
 
     auto refresh_gamepads = [&]() {
         for (SDL_Gamepad *g : gamepads) SDL_CloseGamepad(g);
@@ -1013,6 +1075,8 @@ int main(int argc, char **argv)
         case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: return retrodos::PAD_R;
         case SDL_GAMEPAD_BUTTON_START:          return retrodos::PAD_START;
         case SDL_GAMEPAD_BUTTON_BACK:           return retrodos::PAD_SELECT;
+        case SDL_GAMEPAD_BUTTON_LEFT_STICK:     return retrodos::PAD_L3;
+        case SDL_GAMEPAD_BUTTON_RIGHT_STICK:    return retrodos::PAD_R3;
         default:                                return -1;
         }
     };
@@ -1057,8 +1121,24 @@ int main(int argc, char **argv)
     std::string playing;           /* title of the running game */
     bool  running = true;
 
+    /* Whether an engine has already run in this process. The engine cannot
+     * run twice: DOSBox-X's globals are initialised once and torn down
+     * asymmetrically, and the second machine boots straight into a triple
+     * fault. On Android the fix is a process restart with the chosen game
+     * remembered; elsewhere the in-process attempt remains, as the least-bad
+     * option available. */
+    bool engine_has_run = false;
+
     auto launch = [&](const Game &in) {
         Game g = in;
+
+        if (engine_has_run) {
+            cfg.pending_launch = g.name;
+            retrodos::save_app_config(cfg_path, cfg);
+            if (retrodos::android_restart_app())
+                return;             /* the process is about to die */
+            cfg.pending_launch.clear();   /* no restart here; press on */
+        }
 
         /* A SAF game has no path yet. Copy it into our own directory, which IS
          * a real path -- DOSBox-X mounts a directory by path and cannot be
@@ -1092,9 +1172,42 @@ int main(int argc, char **argv)
         }
         last_serial  = 0;
         show_overlay = show_osk = false;
+        pad_prev     = 0;
+        joy_primed   = false;
+        playing      = g.name;
+        engine_has_run = true;
         engine = std::thread(engine_thread, conf_path, g.dir);
         view = View::Emulator;
     };
+
+    /* Auto-launch after a phoenix restart. Cleared and SAVED before the
+     * launch, so a game that kills the process cannot restart-loop the app --
+     * the second time round the note is simply gone. */
+    if (!cfg.pending_launch.empty()) {
+        const std::string want = cfg.pending_launch;
+        cfg.pending_launch.clear();
+        retrodos::save_app_config(cfg_path, cfg);
+        view = View::Shell;   /* never the wizard: a restart means we ran */
+        for (const Game &g : games) {
+            if (g.name == want) { launch(g); break; }
+        }
+        if (view != View::Emulator && retrodos::demo_prepare(demo_dir)) {
+            /* Demo titles are built on the fly and never live in `games`
+             * while a real library exists. */
+            const retrodos::DemoKind kinds[] = { retrodos::DemoKind::Demo,
+                                                 retrodos::DemoKind::FreeDos };
+            for (retrodos::DemoKind k : kinds) {
+                if (retrodos::demo_title(k) != want) continue;
+                Game g;
+                g.name    = retrodos::demo_title(k);
+                g.dir     = demo_dir;
+                g.run     = retrodos::demo_command(k, g.run_raw);
+                g.is_demo = true;
+                launch(g);
+                break;
+            }
+        }
+    }
 
     int win_w = 0, win_h = 0;
 
@@ -1175,6 +1288,7 @@ int main(int argc, char **argv)
             }
 
             case SDL_EVENT_GAMEPAD_AXIS_MOTION: {
+                LOGI("gpaxis axis=%d value=%d", (int)ev.gaxis.axis, (int)ev.gaxis.value);
                 /* The left stick drives the emulated stick directly, and also
                  * synthesises direction presses so a keyboard game is playable
                  * with it. The dead zone is generous: a worn thumbstick that
@@ -1232,6 +1346,20 @@ int main(int argc, char **argv)
          * which turns a menu selection into a blur. */
         if (view == View::Emulator) {
             pad.set_enabled(active.onscreen_pad);
+
+            /* Announce the stick BEFORE the game asks.
+             *
+             * The bridge enables the emulated stick on the first input it
+             * receives -- which used to mean the game port read as empty until
+             * the player actually moved something. A DOS game probes the port
+             * once, at startup or in its setup screen, decides there is no
+             * joystick, and never looks again. Sending one centred, buttons-up
+             * report at boot is what makes detection succeed. Re-armed when the
+             * option is toggled on mid-game from the Controls panel. */
+            if (active.pad_sends_joystick) {
+                if (!joy_primed) { retrodos_host_joystick(0, 0, 0, 0); joy_primed = true; }
+            } else joy_primed = false;
+
             const unsigned mask = pad.held() | gp_buttons;
             if (mask != pad_prev) {
                 if (active.pad_sends_keys) {
@@ -1633,6 +1761,7 @@ int main(int argc, char **argv)
                                    * pages nothing and stops the layout silently
                                    * eating things on smaller screens. */
                                   0);
+                scroll_by_drag();
 
                 const float cw = ImGui::GetContentRegionAvail().x;
 
@@ -1751,6 +1880,7 @@ int main(int argc, char **argv)
                         ImGui::TextDisabled("No games match this filter.");
                     } else {
                         ImGui::BeginChild("##list");
+                        scroll_by_drag();
                         const float row_h = ImGui::GetFontSize() * 2.2f;
                         /* Clip: a widget per title would cost thousands of draw
                          * calls a frame on a real collection. */
@@ -1939,6 +2069,7 @@ int main(int argc, char **argv)
 
                     ImGui::Text("%zu titles", catalogue.size());
                     ImGui::BeginChild("##cat");
+                    scroll_by_drag();
                     /* Rows are given room: at arm's length a list packed at text
                      * height is easy to mis-tap, and a mis-tap here starts a
                      * download that can run to a gigabyte. */
@@ -1989,11 +2120,28 @@ int main(int argc, char **argv)
                                               games[selected].name.c_str());
                     else ImGui::Text("%s - defaults for all games",
                                      page == Page::Input ? "Input" : "Machine");
+
+                    /* Both halves of a game's setup, reachable from each other
+                     * WITHOUT losing which game is being edited. The rail's own
+                     * Machine/Input entries clear the selection -- they mean
+                     * "the defaults" -- so without this there was no route at
+                     * all to a single game's input bindings from its Setup
+                     * button. */
+                    {
+                        const Page other = (page == Page::Input) ? Page::Settings
+                                                                 : Page::Input;
+                        ImGui::SameLine(cw - ImGui::GetFontSize() * 9.0f);
+                        if (ImGui::SmallButton(page == Page::Input
+                                                   ? "Machine settings"
+                                                   : "Input bindings"))
+                            page = other;
+                    }
                     ImGui::Separator();
 
                     ImGui::BeginChild("##sset",
                                       ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.6f),
                                       0, ImGuiWindowFlags_NoScrollbar);
+                    scroll_by_drag();
                     if (page == Page::Input) controls_widgets(edit);
                     else                     settings_widgets(edit);
                     if (per_game) {
@@ -2110,11 +2258,16 @@ int main(int argc, char **argv)
                 ImGui::Separator();
                 const ImVec2 bw(ImGui::GetFontSize() * 11.0f, 0);
                 if (ImGui::Button("Resume", bw)) show_overlay = false;
+                /* One panel at a time. The keyboard and the controls panel
+                 * both cover the game, both block keys from reaching DOS, and
+                 * stacked they buried each other's close buttons -- a player
+                 * ended up wedged with "1" apparently doing nothing. */
                 if (ImGui::Button(show_osk ? "Hide keyboard" : "Show keyboard", bw)) {
                     show_osk = !show_osk; show_overlay = false;
+                    if (show_osk) show_controls = false;
                 }
                 if (ImGui::Button("Controls", bw)) {
-                    show_controls = true; show_overlay = false;
+                    show_controls = true; show_overlay = false; show_osk = false;
                 }
                 if (ImGui::Button("Ctrl+Alt+Del", bw)) {
                     retrodos::osk_send_ctrl_alt_del(); show_overlay = false;
@@ -2176,6 +2329,7 @@ int main(int argc, char **argv)
                 ImGui::BeginChild("##ctl",
                                   ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.6f),
                                   0, ImGuiWindowFlags_NoScrollbar);
+                scroll_by_drag();
                 controls_widgets(active);
                 ImGui::EndChild();
 
@@ -2208,6 +2362,40 @@ int main(int argc, char **argv)
                              ImGuiWindowFlags_NoNav | ImGuiWindowFlags_AlwaysAutoResize |
                              ImGuiWindowFlags_NoFocusOnAppearing);
                 if (ImGui::Button("Menu")) show_overlay = true;
+                ImGui::SameLine();
+
+                /* Joystick and keys, one tap each. These are the two switches
+                 * a player actually throws mid-game -- a title's setup screen
+                 * wants the stick dead while it reads the keyboard, then wants
+                 * it back -- and a panel is too much ceremony for that. Lit
+                 * when active, like the nav rail. Saved to the game
+                 * immediately: a toggle that silently reverts on the next
+                 * launch reads as broken, and the joystick one MUST persist to
+                 * matter, because detection happens as the game boots. */
+                {
+                    auto toggle_chip = [&](const char *label, bool &flag) {
+                        const bool on = flag;
+                        if (on) ImGui::PushStyleColor(ImGuiCol_Button,
+                                    ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                        if (ImGui::Button(label)) {
+                            flag = !flag;
+                            if (!playing.empty())
+                                retrodos::save_game_settings(games_dir, playing, active);
+                        }
+                        if (on) ImGui::PopStyleColor();
+                    };
+                    toggle_chip("Joy",  active.pad_sends_joystick);
+                    ImGui::SameLine();
+                    toggle_chip("Keys", active.pad_sends_keys);
+                }
+                ImGui::SameLine();
+
+                /* One tap to the mapping panel. Burying it behind Menu ->
+                 * Controls made the most-adjusted thing in a DOS session --
+                 * which keys the pad sends, whether the stick is live -- two
+                 * presses away and invisible; a player who never opens the
+                 * menu never learns it exists. */
+                if (ImGui::Button("Pad")) { show_controls = true; show_osk = false; }
                 ImGui::SameLine();
                 if (ImGui::Button(show_osk ? "Hide keys" : "Keyboard")) show_osk = !show_osk;
                 ImGui::End();

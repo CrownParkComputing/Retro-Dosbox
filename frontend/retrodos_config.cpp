@@ -80,7 +80,7 @@ void append_settings(std::string &s, const Settings &v)
     /* One line, so a per-game override file stays readable and a hand edit is
      * a single change rather than twelve. */
     s += "pad_keys=";
-    for (int i = 0; i < 14; ++i) {
+    for (int i = 0; i < 16; ++i) {
         if (i) s += ",";
         s += std::to_string(v.pad_keys[i]);
     }
@@ -108,7 +108,9 @@ void read_settings(const std::map<std::string, std::string> &kv, Settings &v)
     if (!keys.empty()) {
         int n = 0;
         size_t i = 0;
-        while (i <= keys.size() && n < 14) {
+        /* Up to 16; a file written before L3/R3 existed has 14 entries and the
+         * two stick clicks simply stay unbound. */
+        while (i <= keys.size() && n < 16) {
             size_t e = keys.find(',', i);
             if (e == std::string::npos) e = keys.size();
             v.pad_keys[n++] = atoi(keys.substr(i, e - i).c_str());
@@ -152,6 +154,8 @@ void default_pad_keys(int *k)
     k[11] = 0;                     /* RT */
     k[12] = SDL_SCANCODE_RETURN;   /* Start  */
     k[13] = SDL_SCANCODE_ESCAPE;   /* Select */
+    k[14] = 0;                     /* L3 -- no DOS convention to point at */
+    k[15] = 0;                     /* R3 */
 }
 
 void descent_pad_keys(int *k)
@@ -179,6 +183,8 @@ void descent_pad_keys(int *k)
     k[11] = SDL_SCANCODE_LCTRL;    /* RT -- primary fire   */
     k[12] = SDL_SCANCODE_RETURN;   /* Start  */
     k[13] = SDL_SCANCODE_ESCAPE;   /* Select */
+    k[14] = SDL_SCANCODE_R;        /* L3 -- rear view */
+    k[15] = SDL_SCANCODE_F1;       /* R3 -- help/automap alt */
 }
 
 bool load_app_config(const std::string &path, AppConfig &out)
@@ -189,6 +195,7 @@ bool load_app_config(const std::string &path, AppConfig &out)
     out.library_root = as_str(kv, "library_root", out.library_root);
     out.wizard_done  = as_bool(kv, "wizard_done", false);
     out.pad_layout   = as_str(kv, "pad_layout", out.pad_layout);
+    out.pending_launch = as_str(kv, "pending_launch", out.pending_launch);
     read_settings(kv, out.defaults);
     return true;
 }
@@ -199,6 +206,7 @@ bool save_app_config(const std::string &path, const AppConfig &cfg)
     s += "library_root=" + cfg.library_root + "\n";
     s += "wizard_done=";  s += cfg.wizard_done ? "1" : "0"; s += "\n";
     if (!cfg.pad_layout.empty()) s += "pad_layout=" + cfg.pad_layout + "\n";
+    if (!cfg.pending_launch.empty()) s += "pending_launch=" + cfg.pending_launch + "\n";
     append_settings(s, cfg.defaults);
     return write_file(path, s);
 }
