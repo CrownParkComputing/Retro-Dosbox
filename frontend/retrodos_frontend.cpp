@@ -1255,6 +1255,10 @@ int main(int argc, char **argv)
      * is set, which is fine: it only has to be right, not instantaneous. */
     bool mouse_grabbed = false;
     unsigned long mouse_seen = 0, mouse_sent = 0;
+    /* The user has asked for the pointer back and means to keep it until they
+     * say otherwise. Distinct from the UI being in front, which releases it
+     * only for as long as the panel is up. */
+    bool mouse_free = false;
     bool  show_controls = false;   /* in-game mapping panel */
     std::string playing;           /* title of the running game */
     bool  running = true;
@@ -1442,6 +1446,25 @@ int main(int argc, char **argv)
                     if (down) show_overlay = !show_overlay;
                     break;
                 }
+                /*
+                 * Ctrl+F10 -- release the pointer, and take it back.
+                 *
+                 * DOSBox's own shortcut for this, so anyone who has used it
+                 * already knows it. Handled here and deliberately NOT passed
+                 * on: a guest that also saw Ctrl+F10 would act on a key the
+                 * user meant for the emulator.
+                 *
+                 * Escape already frees the pointer by opening the overlay, but
+                 * only while that panel is up, and it is a key DOS and Windows
+                 * both want. This is the one that stays.
+                 */
+#if !defined(__ANDROID__) && !defined(__APPLE__)
+                if (down && ev.key.scancode == SDL_SCANCODE_F10 &&
+                    (SDL_GetModState() & SDL_KMOD_CTRL)) {
+                    mouse_free = !mouse_free;
+                    break;
+                }
+#endif
                 if (!ui_wants_keys) retrodos_host_send_key((int)ev.key.scancode, down);
                 break;
             }
@@ -1462,6 +1485,16 @@ int main(int argc, char **argv)
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
             case SDL_EVENT_MOUSE_BUTTON_UP:
                 if (!ui_wants_mouse && view == View::Emulator) {
+#if !defined(__ANDROID__) && !defined(__APPLE__)
+                    /* Released, and the user has clicked back into the
+                     * picture: take the pointer again rather than sending a
+                     * click the guest cannot place. Same gesture DOSBox uses,
+                     * and the click itself is swallowed. */
+                    if (mouse_free && ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+                        mouse_free = false;
+                        break;
+                    }
+#endif
                     const int b = (ev.button.button == SDL_BUTTON_RIGHT)  ? 1 :
                                   (ev.button.button == SDL_BUTTON_MIDDLE) ? 2 : 0;
                     retrodos_host_mouse_button(b, ev.type == SDL_EVENT_MOUSE_BUTTON_DOWN);
@@ -1771,7 +1804,7 @@ int main(int argc, char **argv)
              */
 #if !defined(__ANDROID__) && !defined(__APPLE__)
             {
-                const bool want_grab = (view == View::Emulator) &&
+                const bool want_grab = (view == View::Emulator) && !mouse_free &&
                                        !show_overlay && !show_osk &&
                                        !show_controls && !pad.editing();
                 if (want_grab != mouse_grabbed) {
@@ -2939,10 +2972,13 @@ int main(int argc, char **argv)
                     show_controls = true; show_overlay = false; show_osk = false;
                 }
 #if !defined(__ANDROID__) && !defined(__APPLE__)
-                ImGui::TextDisabled("Escape releases the mouse");
 #endif
                 /* If the guest's pointer is not moving, this says which half
                  * is at fault without anyone having to guess. */
+                if (ImGui::Button(mouse_free ? "Give mouse to Windows"
+                                             : "Release mouse", bw))
+                    mouse_free = !mouse_free;
+                ImGui::TextDisabled("or Ctrl+F10, or click the picture");
                 ImGui::TextDisabled("mouse: %lu seen, %lu sent%s",
                                     mouse_seen, mouse_sent,
                                     mouse_grabbed ? ", held" : "");
