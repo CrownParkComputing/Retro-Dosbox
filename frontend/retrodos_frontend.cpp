@@ -86,6 +86,7 @@ struct Game {
      * not offer it a DOS "Setup" program or describe it as having no runnable
      * -- both of which it did, and both of which ended at a C:\> prompt. */
     bool        is_machine = false;
+    retrodos::Win98Phase machine_phase = retrodos::Win98Phase::Create;
 };
 
 bool ends_with_ci(const std::string &s, const char *suffix)
@@ -255,9 +256,12 @@ void find_runnable(const std::string &dir, Game &g)
     if (retrodos::win98_is_install_dir(dir)) {
         retrodos::Win98Install w;
         g.is_machine = true;
-        g.run = retrodos::win98_load(dir, w)
-                    ? retrodos::win98_phase_name(w.phase)
-                    : "Windows 98";
+        if (retrodos::win98_load(dir, w)) {
+            g.machine_phase = w.phase;
+            g.run = retrodos::win98_phase_name(w.phase);
+        } else {
+            g.run = "Windows 98";
+        }
         return;
     }
 
@@ -518,6 +522,53 @@ std::string library_label(const std::string &root)
  * UUID under /var/mobile/Containers, and no part of it can be typed into the
  * Files app. What the user needs is the name they will actually see there.
  * Everywhere else the real path is the useful answer, so it is left alone. */
+/*
+ * Disc and disk images lying about in a folder, for the "change the disc"
+ * panel.
+ *
+ * Top level only. The glob recurses, and an image three folders down is
+ * usually part of a game that already mounts it for itself -- offering it as
+ * something to shove into the running machine is noise, not a feature.
+ */
+std::vector<std::string> scan_images(const std::string &dir, bool cd)
+{
+    static const char *const kCd[]     = { "*.iso", "*.cue", "*.bin", "*.chd",
+                                           "*.mdf", "*.gog", "*.ins", "*.inst",
+                                           nullptr };
+    static const char *const kFloppy[] = { "*.ima", "*.img", "*.xdf", "*.fdi",
+                                           "*.hdm", "*.nfd", "*.d88", "*.td0",
+                                           nullptr };
+
+    std::vector<std::string> out;
+    if (dir.empty()) return out;
+
+    SDL_Storage *st = SDL_OpenFileStorage(dir.c_str());
+    if (!st) return out;
+    for (const char *const *pat = cd ? kCd : kFloppy; *pat; ++pat) {
+        int n = 0;
+        char **found = SDL_GlobStorageDirectory(st, nullptr, *pat,
+                                                SDL_GLOB_CASEINSENSITIVE, &n);
+        if (!found) continue;
+        for (int i = 0; i < n && found[i]; ++i) {
+            if (SDL_strchr(found[i], '/')) continue;
+            out.push_back(dir + "/" + found[i]);
+        }
+        SDL_free(found);
+    }
+    SDL_CloseStorage(st);
+
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
+/* The part of a path a person recognises. */
+std::string base_name(const std::string &path)
+{
+    const size_t slash = path.find_last_of("/\\");
+    return (slash == std::string::npos) ? path : path.substr(slash + 1);
+}
+
 std::string root_label(const std::string &root)
 {
 #if defined(__APPLE__)
@@ -1880,6 +1931,25 @@ int main(int argc, char **argv)
                 show_overlay = show_osk = false;
 
                 /*
+                 * Take the pointer back, by force.
+                 *
+                 * The engine shares this process's SDL, and it hides the
+                 * cursor for itself -- SDL_ShowCursor(SDL_DISABLE) in half a
+                 * dozen places in sdlmain.cpp -- without restoring it on the
+                 * way out. So closing a guest left the launcher with no mouse
+                 * pointer at all and nothing on screen to explain it. Letting
+                 * the grab flag fall out on its own is not enough: the flag
+                 * governs relative mode, and this is the cursor itself.
+                 *
+                 * Asserted rather than tracked. Whatever the engine did to the
+                 * window, the frontend owns it again now.
+                 */
+                SDL_SetWindowRelativeMouseMode(win, false);
+                SDL_ShowCursor();
+                mouse_grabbed = false;
+                mouse_free    = false;
+
+                /*
                  * Setup rebooting IS the step boundary.
                  *
                  * The guide says so plainly: when the installer reboots you are
@@ -2299,13 +2369,19 @@ int main(int argc, char **argv)
                                 }
                                 ImGui::SameLine(cw * 0.86f);
                                 /* A machine has no per-game DOS settings to
-                                 * open -- its whole configuration comes from
-                                 * the install's phase -- so the button beside
-                                 * it goes to the walkthrough that owns it. */
+                                 * open, so the button beside it says what it
+                                 * will actually do: an installed machine
+                                 * starts, an unfinished one goes to the
+                                 * walkthrough that knows what is left. */
                                 if (games[gi].is_machine) {
-                                    if (ImGui::SmallButton("Wizard")) {
-                                        win_stale = true;   /* re-read the phase */
-                                        page = Page::Windows;
+                                    const bool ready = games[gi].machine_phase ==
+                                                       retrodos::Win98Phase::Run;
+                                    if (ImGui::SmallButton(ready ? "Start" : "Setup")) {
+                                        if (ready) launch(games[gi]);
+                                        else {
+                                            win_stale = true;   /* re-read the phase */
+                                            page = Page::Windows;
+                                        }
                                     }
                                 } else if (ImGui::SmallButton("Setup")) {
                                     selected = gi; page = Page::Settings;
@@ -3174,6 +3250,98 @@ int main(int argc, char **argv)
                         retrodos::save_app_config(cfg_path, cfg);
                     }
                 }
+                /*
+                 * Changing the disc without stopping the machine.
+                 *
+                 * This is not an IMGMOUNT typed at a prompt -- there is no
+                 * prompt once Windows has booted, and those letters would go
+                 * straight into whatever has focus in the guest. It goes
+                 * through the host API, which changes the media behind the
+                 * emulated drive and tells the guest it changed, the same way
+                 * DOSBox-X's own "change CD image" menu item does.
+                 */
+                if (ImGui::CollapsingHeader("Discs and disks")) {
+                    static char cd_drive = 'D', fd_drive = 'A';
+                    static std::string media_note;
+                    static std::vector<std::string> cds, fds;
+                    static bool media_scanned = false;
+                    if (!media_scanned) {
+                        cds = scan_images(cfg.library_root, true);
+                        fds = scan_images(cfg.library_root, false);
+                        if (!win_running_dir.empty()) {
+                            for (const std::string &p : scan_images(win_running_dir, true))
+                                cds.push_back(p);
+                            for (const std::string &p : scan_images(win_running_dir, false))
+                                fds.push_back(p);
+                        }
+                        media_scanned = true;
+                    }
+
+                    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
+                    auto drive_picker = [&](const char *label, char &letter,
+                                            char lo, char hi) {
+                        ImGui::TextDisabled("%s", label);
+                        ImGui::SameLine();
+                        ImGui::PushID(label);
+                        if (ImGui::SmallButton("<") && letter > lo) --letter;
+                        ImGui::SameLine();
+                        ImGui::Text("%c:", letter);
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton(">") && letter < hi) ++letter;
+                        ImGui::PopID();
+                    };
+
+                    drive_picker("CD-ROM", cd_drive, 'C', 'Z');
+                    for (size_t i = 0; i < cds.size() && i < 12; ++i) {
+                        ImGui::PushID((int)(100 + i));
+                        if (ImGui::Button(base_name(cds[i]).c_str(),
+                                          ImVec2(ImGui::GetFontSize() * 24.0f, 0))) {
+                            retrodos_host_insert_cd(cd_drive, cds[i].c_str());
+                            media_note = std::string("Inserted ") +
+                                         base_name(cds[i]) + " in " + cd_drive + ":";
+                        }
+                        ImGui::PopID();
+                    }
+                    if (cds.empty()) ImGui::TextDisabled("No disc images found.");
+                    if (ImGui::SmallButton("Eject CD")) {
+                        retrodos_host_insert_cd(cd_drive, "");
+                        media_note = std::string("Ejected ") + cd_drive + ":";
+                    }
+
+                    ImGui::Spacing();
+                    drive_picker("Floppy", fd_drive, 'A', 'B');
+                    for (size_t i = 0; i < fds.size() && i < 12; ++i) {
+                        ImGui::PushID((int)(200 + i));
+                        if (ImGui::Button(base_name(fds[i]).c_str(),
+                                          ImVec2(ImGui::GetFontSize() * 24.0f, 0))) {
+                            retrodos_host_insert_floppy(fd_drive, fds[i].c_str());
+                            media_note = std::string("Inserted ") +
+                                         base_name(fds[i]) + " in " + fd_drive + ":";
+                        }
+                        ImGui::PopID();
+                    }
+                    if (fds.empty()) ImGui::TextDisabled("No floppy images found.");
+                    if (ImGui::SmallButton("Eject floppy")) {
+                        retrodos_host_insert_floppy(fd_drive, "");
+                        media_note = std::string("Ejected ") + fd_drive + ":";
+                    }
+
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Rescan")) media_scanned = false;
+
+                    if (!media_note.empty()) {
+                        ImGui::Spacing();
+                        ImGui::TextWrapped("%s", media_note.c_str());
+                    }
+                    /* Said plainly, because the failure is otherwise silent
+                     * and looks like a broken button: the guest bound its
+                     * drivers to the hardware it found when it booted. */
+                    TextDimWrapped("Images are taken from your games folder. A drive that "
+                                   "was not there when the machine booted cannot be added "
+                                   "now -- only the disc in an existing one can change.");
+                    ImGui::PopTextWrapPos();
+                }
+
                 if (ImGui::Button("Reset machine", bw)) {
                     retrodos_host_reset(true); show_overlay = false;
                 }
