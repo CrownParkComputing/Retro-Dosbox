@@ -1244,6 +1244,13 @@ int main(int argc, char **argv)
      * cannot see them once the emulator is full-screen -- so the pause panel
      * carries a copy. Empty for anything that is not a Windows install. */
     std::string win_hint;
+    /* Which Windows machine this launch belongs to, and at which phase, so the
+     * wizard can move on when the engine exits. Empty for anything else. */
+    std::string win_running_dir;
+    retrodos::Win98Phase win_running_phase = retrodos::Win98Phase::Create;
+    /* Set when the phase is changed from outside the wizard page, so the page
+     * re-reads instead of showing the copy it loaded on first open. */
+    bool win_stale = false;
     bool  show_controls = false;   /* in-game mapping panel */
     std::string playing;           /* title of the running game */
     bool  running = true;
@@ -1260,7 +1267,7 @@ int main(int argc, char **argv)
         Game g = in;
         /* Only a Windows install carries a hint; anything else clears it, so a
          * stale crib cannot follow a game into its pause menu. */
-        if (g.conf_override.empty()) win_hint.clear();
+        if (g.conf_override.empty()) { win_hint.clear(); win_running_dir.clear(); }
 
         if (engine_has_run) {
             cfg.pending_launch = g.name;
@@ -1720,6 +1727,33 @@ int main(int argc, char **argv)
                 g_engine_done.store(false);
                 view = View::Shell;
                 show_overlay = show_osk = false;
+
+                /*
+                 * Setup rebooting IS the step boundary.
+                 *
+                 * The guide says so plainly: when the installer reboots you are
+                 * back at the prompt, and from then on you boot the hard disk
+                 * rather than the CD. Leaving the phase alone meant the next
+                 * launch ran the install step again -- IMGMOUNT A -bootcd,
+                 * BOOT A: -- which starts Setup over from the beginning on a
+                 * disk that has just had Windows written to it.
+                 *
+                 * So the phase advances the moment the engine exits, without
+                 * asking. It is the one transition here that is genuinely
+                 * observable, and it is the one the user is least able to
+                 * guess at.
+                 */
+                if (!win_running_dir.empty() &&
+                    win_running_phase == retrodos::Win98Phase::Install) {
+                    retrodos::Win98Install fin;
+                    if (retrodos::win98_load(win_running_dir, fin)) {
+                        fin.phase = retrodos::Win98Phase::Continue;
+                        retrodos::win98_save(fin);
+                        win_stale = true;
+                    }
+                }
+                win_running_dir.clear();
+
                 refresh();
             }
         }
@@ -2360,6 +2394,7 @@ int main(int argc, char **argv)
                     static retrodos::Win98Install w;
                     static bool w_loaded = false;
                     static int  step = 0;
+                    if (win_stale) { w_loaded = false; win_stale = false; }
                     if (!w_loaded) {
                         if (!retrodos::win98_load(wdir, w)) w.dir = wdir;
                         w_loaded = true;
@@ -2391,6 +2426,10 @@ int main(int argc, char **argv)
                             step = 2;         /* no disk: cannot be past making it */
                         else if (w.phase == retrodos::Win98Phase::Install && step < 2)
                             step = 2;
+                        else if (w.phase == retrodos::Win98Phase::Continue && step < 4)
+                            step = 4;         /* Setup has rebooted at least once */
+                        else if (w.phase == retrodos::Win98Phase::Run && step < 5)
+                            step = 5;
                     }
 
                     static const char *kStepName[] = {
@@ -2600,6 +2639,8 @@ int main(int argc, char **argv)
                                 "At a prompt instead?  D:  then  cd \\WIN98  then  setup";
                             w.phase = retrodos::Win98Phase::Install;
                             retrodos::win98_save(w);
+                            win_running_dir   = w.dir;
+                            win_running_phase = w.phase;
                             Game g;
                             g.name = "Windows 98";
                             g.dir  = w.dir;
@@ -2637,6 +2678,8 @@ int main(int argc, char **argv)
                                        "Retro-DOS, press Continue Setup again.";
                             w.phase = retrodos::Win98Phase::Continue;
                             retrodos::win98_save(w);
+                            win_running_dir   = w.dir;
+                            win_running_phase = w.phase;
                             Game g;
                             g.name = "Windows 98";
                             g.dir  = w.dir;
@@ -2662,6 +2705,8 @@ int main(int argc, char **argv)
                         if (ImGui::Button("Start Windows 98", ImVec2(cw * 0.5f, 0))) {
                             w.phase = retrodos::Win98Phase::Run;
                             retrodos::win98_save(w);
+                            win_running_dir   = w.dir;
+                            win_running_phase = w.phase;
                             Game g;
                             g.name = "Windows 98";
                             g.dir  = w.dir;
