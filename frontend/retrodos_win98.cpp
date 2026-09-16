@@ -254,6 +254,21 @@ std::string win98_conf(const Win98Install &w)
          ((w.phase == Win98Phase::Run && w.fast_core_after_install) ? "auto"
                                                                    : "normal") + "\n";
 
+    c += "\n[keyboard]\n";
+    /*
+     * The PS/2 mouse, stated rather than left to the default.
+     *
+     * A booted guest has no other way to be given a mouse: DOSBox-X's INT 33h
+     * driver is a DOS service and Windows never calls it, so the pointer comes
+     * through the 8042 auxiliary port or not at all. Both of these already
+     * default this way, but a Windows guest is precisely the case where a
+     * changed default would be silent and baffling -- Windows finds no mouse
+     * during hardware detection, installs no driver, and afterwards draws a
+     * cursor that does not move.
+     */
+    c += "aux=true\n";
+    c += "auxdevice=intellimouse\n";
+
     c += "\n[sblaster]\n";
     /* The guide's choice. The ViBRA is the PnP part Windows 98 has a driver
      * for, so sound works after install without hunting for one. */
