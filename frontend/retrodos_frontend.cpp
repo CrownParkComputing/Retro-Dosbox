@@ -26,6 +26,7 @@
 #include "imgui_impl_sdlrenderer3.h"
 
 #include "retrodos_host.h"
+#include "retrodos_brand.h"
 #include "retrodos_config.h"
 #include "retrodos_osk.h"
 #include "retrodos_saf.h"
@@ -976,10 +977,20 @@ int main(int argc, char **argv)
         const float scale = std::max(1.0f, shorter / 540.0f);
         ImGui::GetStyle().ScaleAllSizes(scale);
 
-        ImFontConfig fc;
-        fc.SizePixels = std::max(20.0f, shorter / 26.0f);     /* ~41px at 1080p */
+        const float font_px = std::max(20.0f, shorter / 26.0f);  /* ~41px at 1080p */
         ImGui::GetIO().Fonts->Clear();
-        ImGui::GetIO().Fonts->AddFontDefault(&fc);
+        /* The bundled face first. ImGui's built-in is ProggyClean, a 13px
+         * bitmap from the 1990s -- fine for a debug overlay and wrong for an
+         * application someone is meant to read at arm's length.
+         *
+         * The fallback is not optional: Clear() above leaves the atlas empty,
+         * and building nothing at all means every later draw call asserts on a
+         * null font. A missing asset must make this plainer, not fatal. */
+        if (!retrodos::load_ui_font(font_px)) {
+            ImFontConfig fc;
+            fc.SizePixels = font_px;
+            ImGui::GetIO().Fonts->AddFontDefault(&fc);
+        }
         ImGui::GetIO().Fonts->Build();
         /* The backend rebuilds its font texture lazily on the next frame; in
          * this ImGui version the explicit texture calls are not public. */
@@ -1763,7 +1774,23 @@ int main(int argc, char **argv)
                 ImGui::BeginChild("rail", ImVec2(rail_w, full.y - margin * 2.0f),
                                   ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar);
 
-                ImGui::TextUnformatted("RETRO-DOS");
+                {
+                    /* The wordmark, fitted to the rail, or the app's name if
+                     * it did not package. Width-limited rather than a fixed
+                     * size, so it stays right from a phone to a desktop
+                     * window. */
+                    int lw = 0, lh = 0;
+                    if (SDL_Texture *mark = retrodos::wordmark(ren, &lw, &lh)) {
+                        const float avail = ImGui::GetContentRegionAvail().x;
+                        const float w = std::min(avail, (float)lw);
+                        const float h = w * (float)lh / (float)lw;
+                        ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
+                                             (avail - w) * 0.5f);
+                        ImGui::Image((ImTextureID)(intptr_t)mark, ImVec2(w, h));
+                    } else {
+                        ImGui::TextUnformatted("RETRO-DOS");
+                    }
+                }
                 ImGui::Separator();
 
                 const float bw = ImGui::GetContentRegionAvail().x;
@@ -2487,6 +2514,7 @@ int main(int argc, char **argv)
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
     if (fb_tex) SDL_DestroyTexture(fb_tex);
+    retrodos::brand_shutdown();      /* before the renderer that owns its texture */
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
     SDL_Quit();

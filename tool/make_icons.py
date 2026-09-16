@@ -214,6 +214,35 @@ def artwork(width):
     return layer
 
 
+def wordmark(width=520):
+    """The wide wordmark the app draws at the top of its navigation rail.
+
+    The same three pieces as the launcher icon and in the same order -- Retro
+    script, DOS, the amber prompt -- but laid out across instead of down,
+    because a 200px rail is wide and short where an icon is square. Built from
+    the identical helpers so the two can never drift into being different
+    logos: change chrome_text and both follow.
+
+    Transparent, so it sits on whatever the UI's background happens to be.
+    """
+    script = retro_script(round(width * 0.52))
+    name = chrome_text("DOS", round(width * 0.30), round(width * 0.17))
+    screen = prompt_screen(round(width * 0.30))
+
+    gap = round(width * 0.035)
+    left_w = max(script.width, name.width)
+    height = max(script.height + name.height + round(width * 0.01), screen.height)
+
+    layer = Image.new("RGBA", (left_w + gap + screen.width, height), (0, 0, 0, 0))
+
+    top = (height - (script.height + name.height + round(width * 0.01))) // 2
+    layer.alpha_composite(script, ((left_w - script.width) // 2, top))
+    layer.alpha_composite(name, ((left_w - name.width) // 2,
+                                 top + script.height + round(width * 0.01)))
+    layer.alpha_composite(screen, (left_w + gap, (height - screen.height) // 2))
+    return layer
+
+
 def master():
     canvas = background()
     art = artwork(round(SIZE * 0.86))
@@ -243,6 +272,15 @@ def rounded(image, radius_fraction=0.22):
 
 
 def main():
+    # The app loads this at run time and draws it in the rail, so it is a
+    # build output like the mipmaps rather than something hand-drawn and
+    # checked in: regenerate it and the UI follows.
+    mark = wordmark()
+    brand = os.path.join(HERE, "assets", "brand")
+    os.makedirs(brand, exist_ok=True)
+    mark.save(os.path.join(brand, "retrodos_wordmark.png"))
+    print("wordmark: %dx%d" % mark.size)
+
     icon = master()
     fore = foreground()
     back = background()

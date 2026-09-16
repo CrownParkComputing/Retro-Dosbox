@@ -42,6 +42,17 @@ endforeach()
 # that is where it was first packaged; it is read here, never modified.
 set(DEMO_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../android/app/src/main/assets/demo")
 set(DEMO_FILES "${DEMO_SRC}/DEMO.COM" "${DEMO_SRC}/FREEDOS.IMG")
+
+# The interface assets: the UI font and the wordmark. They go into the bundle
+# under assets/ui/, which is exactly the path retrodos_brand.cpp asks
+# SDL_GetBasePath for.
+set(UI_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../assets/ui")
+set(UI_FILES "${UI_SRC}/ui-font.ttf" "${UI_SRC}/wordmark.png")
+foreach(f ${UI_FILES})
+  if(NOT EXISTS "${f}")
+    message(FATAL_ERROR "bundled interface asset missing: ${f}")
+  endif()
+endforeach()
 foreach(f ${DEMO_FILES})
   if(NOT EXISTS "${f}")
     message(FATAL_ERROR "bundled demo content missing: ${f}")
@@ -65,7 +76,8 @@ endif()
 add_executable(RetroDos MACOSX_BUNDLE
   "${CMAKE_CURRENT_BINARY_DIR}/app_main.cpp"
   "${ASSETS}"
-  ${DEMO_FILES})
+  ${DEMO_FILES}
+  ${UI_FILES})
 
 # The catalog is compiled by actool into Assets.car, and the icon NAME is what
 # puts CFBundleIcons in the built Info.plist. A delivery without that key is
@@ -75,6 +87,9 @@ set_source_files_properties("${ASSETS}" PROPERTIES
 
 set_source_files_properties(${DEMO_FILES} PROPERTIES
   MACOSX_PACKAGE_LOCATION "Resources/demo")
+
+set_source_files_properties(${UI_FILES} PROPERTIES
+  MACOSX_PACKAGE_LOCATION "Resources/assets/ui")
 
 set_target_properties(RetroDos PROPERTIES
   MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_BINARY_DIR}/Info.plist"
