@@ -1254,6 +1254,7 @@ int main(int argc, char **argv)
     /* True while the pointer is held for the guest. Read a frame later than it
      * is set, which is fine: it only has to be right, not instantaneous. */
     bool mouse_grabbed = false;
+    unsigned long mouse_seen = 0, mouse_sent = 0;
     bool  show_controls = false;   /* in-game mapping panel */
     std::string playing;           /* title of the running game */
     bool  running = true;
@@ -1446,8 +1447,16 @@ int main(int argc, char **argv)
             }
 
             case SDL_EVENT_MOUSE_MOTION:
-                if (!ui_wants_mouse && view == View::Emulator)
+                /* Counted on both sides of the gate, because "the mouse does
+                 * nothing" has two completely different causes -- the events
+                 * are not arriving, or they are arriving and being withheld --
+                 * and from outside the app they look identical. The overlay
+                 * shows both numbers. */
+                ++mouse_seen;
+                if (!ui_wants_mouse && view == View::Emulator) {
+                    ++mouse_sent;
                     retrodos_host_mouse_move((int)ev.motion.xrel, (int)ev.motion.yrel);
+                }
                 break;
 
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
@@ -2932,6 +2941,11 @@ int main(int argc, char **argv)
 #if !defined(__ANDROID__) && !defined(__APPLE__)
                 ImGui::TextDisabled("Escape releases the mouse");
 #endif
+                /* If the guest's pointer is not moving, this says which half
+                 * is at fault without anyone having to guess. */
+                ImGui::TextDisabled("mouse: %lu seen, %lu sent%s",
+                                    mouse_seen, mouse_sent,
+                                    mouse_grabbed ? ", held" : "");
                 /*
                  * Paste, through SDL's clipboard rather than DOSBox-X's.
                  *
