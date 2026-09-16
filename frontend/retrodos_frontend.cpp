@@ -1267,7 +1267,15 @@ int main(int argc, char **argv)
             retrodos::save_app_config(cfg_path, cfg);
             if (retrodos::android_restart_app())
                 return;             /* the process is about to die */
-            cfg.pending_launch.clear();   /* no restart here; press on */
+            /* Cleared on DISK, not just in memory.
+             *
+             * The line above wrote pending_launch to the config before trying
+             * to restart. Where no restart happens -- desktop, iOS, or Android
+             * refusing -- clearing only the in-memory copy left the file
+             * saying "launch this on startup" for ever, so every subsequent
+             * start auto-ran the last thing played. */
+            cfg.pending_launch.clear();
+            retrodos::save_app_config(cfg_path, cfg);
         }
 
         /* A SAF game has no path yet. Copy it into our own directory, which IS
@@ -1320,8 +1328,34 @@ int main(int argc, char **argv)
         cfg.pending_launch.clear();
         retrodos::save_app_config(cfg_path, cfg);
         view = View::Shell;   /* never the wizard: a restart means we ran */
-        for (const Game &g : games) {
-            if (g.name == want) { launch(g); break; }
+
+        /*
+         * A Windows machine cannot be resumed as an ordinary library entry.
+         *
+         * Its launch is driven by a conf_override that the wizard builds from
+         * the install's phase; going through the games list instead loses it,
+         * and build_conf then mounts the machine's folder as C: and drops the
+         * user at a DOS prompt with no Windows and no explanation. Rebuild the
+         * conf from the saved phase instead.
+         */
+        {
+            retrodos::Win98Install pw;
+            const std::string wdir = cfg.library_root + "/" + want;
+            if (retrodos::win98_is_install_dir(wdir) &&
+                retrodos::win98_load(wdir, pw) &&
+                retrodos::win98_blocker(pw).empty()) {
+                Game g;
+                g.name = want;
+                g.dir  = wdir;
+                g.conf_override = retrodos::win98_conf(pw);
+                launch(g);
+            }
+        }
+
+        if (view != View::Emulator) {
+            for (const Game &g : games) {
+                if (g.name == want) { launch(g); break; }
+            }
         }
         if (view != View::Emulator && retrodos::demo_prepare(demo_dir)) {
             /* Demo titles are built on the fly and never live in `games`
