@@ -1156,7 +1156,8 @@ int main(int argc, char **argv)
     refresh();
 
     enum class View { Wizard, Shell, Emulator };
-    enum class Page { Library, Artwork, Downloads, Settings, Input, Windows, Demo, About };
+    enum class Page { Library, Artwork, Downloads, Settings, Input, Account,
+                      Windows, Demo, About };
     View view = cfg.wizard_done ? View::Shell : View::Wizard;
     Page page = Page::Library;
 
@@ -2093,6 +2094,11 @@ int main(int argc, char **argv)
                 }
                 nav("Machine",  Page::Settings);
                 nav("Input",    Page::Input);
+                /* The account sits with the settings rather than on the
+                 * Artwork page where it started: signing in is something you
+                 * do once and then forget, and hiding it behind a feature page
+                 * meant nobody could find it to sign OUT. */
+                if (retrodos::media_available()) nav("Account", Page::Account);
                 ImGui::Spacing();
                 ImGui::Separator();
                 nav("Windows", Page::Windows);
@@ -2311,7 +2317,7 @@ int main(int argc, char **argv)
                     }
                 }
 
-                /* ---- Artwork (and the RetroMedia account) ---- */
+                /* ---- Artwork ---- */
                 else if (page == Page::Artwork) {
                     ImGui::TextUnformatted("Artwork");
                     ImGui::Separator();
@@ -2321,17 +2327,17 @@ int main(int argc, char **argv)
                         ImGui::Separator();
                     }
 
-                    if (account.signed_in) {
-                        ImGui::Text("Signed in as %s", account.email.c_str());
-                        if (account.is_admin) ImGui::TextUnformatted("Administrator");
-                        else ImGui::TextDisabled("Standard account - artwork only");
-                        ImGui::Text("Credits: %d    Free today: %d",
-                                    account.credits, account.free_remaining);
-                        if (ImGui::Button("Sign out")) {
-                            media_busy = true; retrodos::media_begin_logout();
-                        }
+                    if (!account.signed_in) {
+                        /* The sign-in form itself lives on Account. Two copies
+                         * of it would be two places to fix, and this page has
+                         * nothing to say until there is an account. */
+                        ImGui::TextWrapped("Box art comes from your RetroMedia account.");
                         ImGui::Spacing();
-                        ImGui::Separator();
+                        if (ImGui::Button("Sign in", ImVec2(cw * 0.4f, 0)))
+                            page = Page::Account;
+                    } else {
+                        ImGui::TextDisabled("Signed in as %s", account.email.c_str());
+                        ImGui::Spacing();
                         ImGui::TextWrapped("Match your library against the DOS catalogue and "
                                            "fetch box art for every title found.");
                         ImGui::BeginDisabled(media_busy || games.empty());
@@ -2345,10 +2351,79 @@ int main(int argc, char **argv)
                         if (art_total > 0 && art_done <= art_total)
                             ImGui::Text("%d / %d", art_done, art_total);
                         ImGui::Text("Cached: %zu", art.size());
+                    }
+                }
+
+                /* ---- Account ---- */
+                else if (page == Page::Account) {
+                    ImGui::TextUnformatted("RetroMedia account");
+                    ImGui::Separator();
+
+                    if (!media_msg.empty()) {
+                        ImGui::TextWrapped("%s", media_msg.c_str());
+                        ImGui::Separator();
+                    }
+
+                    if (account.signed_in) {
+                        ImGui::Text("Signed in as %s", account.email.c_str());
+                        if (account.is_admin) ImGui::TextUnformatted("Administrator");
+                        else ImGui::TextDisabled("Standard account - artwork only");
+                        ImGui::Text("Credits: %d    Free today: %d",
+                                    account.credits, account.free_remaining);
+                        ImGui::Spacing();
+                        if (ImGui::Button("Sign out")) {
+                            media_busy = true; retrodos::media_begin_logout();
+                        }
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+                        if (ImGui::Button("Get artwork for my library", ImVec2(cw * 0.5f, 0)))
+                            page = Page::Artwork;
+                        if (retrodos::media_downloads_available() && account.is_admin) {
+                            ImGui::SameLine();
+                            if (ImGui::Button("Downloads")) page = Page::Downloads;
+                        }
                     } else {
                         ImGui::TextWrapped("Sign in to media.crownparkcomputing.com for box "
                                            "art. Administrators can also download games.");
                         ImGui::Spacing();
+
+                        /*
+                         * The API key comes FIRST because it is the one that
+                         * always works.
+                         *
+                         * An account that signs in with Google has no password
+                         * for the form below to check -- Firebase rejects it
+                         * with a message about credentials, which reads as "you
+                         * typed it wrong" rather than "this account does not
+                         * work that way". A key is also revocable from the
+                         * website and is the better thing to leave on a shared
+                         * handheld.
+                         */
+                        ImGui::TextWrapped("Paste an API key from your account page on the "
+                                           "website (it starts with rmk_):");
+                        ImGui::SetNextItemWidth(cw * 0.55f);
+                        ImGui::InputText("API key", m_key, sizeof(m_key),
+                                         ImGuiInputTextFlags_Password);
+                        ImGui::BeginDisabled(media_busy || !m_key[0]);
+                        if (ImGui::Button("Use API key")) {
+                            media_busy = true; media_msg = "Checking key...";
+                            retrodos::media_begin_login_key(m_key);
+                        }
+                        ImGui::EndDisabled();
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("Paste")) {
+                            if (char *clip = SDL_GetClipboardText()) {
+                                SDL_strlcpy(m_key, clip, sizeof(m_key));
+                                SDL_free(clip);
+                            }
+                        }
+
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+                        ImGui::TextWrapped("Or sign in with an email and password, if your "
+                                           "account has one:");
                         ImGui::SetNextItemWidth(cw * 0.55f);
                         ImGui::InputText("Email", m_email, sizeof(m_email));
                         ImGui::SetNextItemWidth(cw * 0.55f);
@@ -2358,23 +2433,6 @@ int main(int argc, char **argv)
                         if (ImGui::Button("Sign in")) {
                             media_busy = true; media_msg = "Signing in...";
                             retrodos::media_begin_login(m_email, m_pass);
-                        }
-                        ImGui::EndDisabled();
-
-                        ImGui::Spacing();
-                        ImGui::Separator();
-                        /* An API key suits a shared handheld better: revocable
-                         * from the website, and the only route for an account
-                         * that signs in with Google and has no password. */
-                        ImGui::TextWrapped("Or paste an API key from your account page "
-                                           "(starts with rmk_):");
-                        ImGui::SetNextItemWidth(cw * 0.55f);
-                        ImGui::InputText("API key", m_key, sizeof(m_key),
-                                         ImGuiInputTextFlags_Password);
-                        ImGui::BeginDisabled(media_busy || !m_key[0]);
-                        if (ImGui::Button("Use API key")) {
-                            media_busy = true; media_msg = "Checking key...";
-                            retrodos::media_begin_login_key(m_key);
                         }
                         ImGui::EndDisabled();
                     }
