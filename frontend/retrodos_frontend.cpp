@@ -1251,6 +1251,9 @@ int main(int argc, char **argv)
     /* Set when the phase is changed from outside the wizard page, so the page
      * re-reads instead of showing the copy it loaded on first open. */
     bool win_stale = false;
+    /* True while the pointer is held for the guest. Read a frame later than it
+     * is set, which is fine: it only has to be right, not instantaneous. */
+    bool mouse_grabbed = false;
     bool  show_controls = false;   /* in-game mapping panel */
     std::string playing;           /* title of the running game */
     bool  running = true;
@@ -1402,7 +1405,22 @@ int main(int argc, char **argv)
          * What stops the game from losing its input is WantCaptureMouse: it is
          * only true while the pointer is actually over one of those controls. */
         const ImGuiIO &io = ImGui::GetIO();
-        const bool ui_wants_mouse = ui_modal || io.WantCaptureMouse;
+        /*
+         * While the pointer is captured it belongs to the guest, full stop.
+         *
+         * WantCaptureMouse cannot be consulted then. Relative mode stops SDL
+         * reporting an absolute position, so ImGui's cursor stays wherever it
+         * was when the capture began -- and if that was over the emulator
+         * view's little control strip, WantCaptureMouse is true for ever and
+         * not one mouse event reaches the guest. The mouse appears completely
+         * dead, which is exactly what it did.
+         *
+         * The strip is unclickable while captured, and that is the right
+         * trade: Escape releases the pointer and everything is clickable
+         * again.
+         */
+        const bool ui_wants_mouse = ui_modal ||
+                                    (!mouse_grabbed && io.WantCaptureMouse);
         const bool ui_wants_keys  = ui_modal || io.WantCaptureKeyboard;
 
         SDL_Event ev;
@@ -1747,10 +1765,11 @@ int main(int argc, char **argv)
                 const bool want_grab = (view == View::Emulator) &&
                                        !show_overlay && !show_osk &&
                                        !show_controls && !pad.editing();
-                static bool grabbed = false;
-                if (want_grab != grabbed) {
-                    SDL_SetWindowRelativeMouseMode(win, want_grab);
-                    grabbed = want_grab;
+                if (want_grab != mouse_grabbed) {
+                    if (SDL_SetWindowRelativeMouseMode(win, want_grab))
+                        mouse_grabbed = want_grab;
+                    else
+                        LOGI("relative mouse mode refused: %s", SDL_GetError());
                 }
             }
 #endif
@@ -2913,6 +2932,36 @@ int main(int argc, char **argv)
 #if !defined(__ANDROID__) && !defined(__APPLE__)
                 ImGui::TextDisabled("Escape releases the mouse");
 #endif
+                /*
+                 * Paste, through SDL's clipboard rather than DOSBox-X's.
+                 *
+                 * The engine has a PasteClipboard, but its Linux path is X11
+                 * only -- useless under Wayland -- and it is a stub on Android
+                 * and iOS. SDL3's clipboard works on all four, and this build
+                 * already links SDL3.
+                 *
+                 * The text is typed as keystrokes rather than injected, because
+                 * that is the only route a guest OS understands: Windows is
+                 * reading a keyboard controller, not a host API.
+                 */
+                if (retrodos::osk_type_pending() > 0) {
+                    ImGui::TextDisabled("Typing... %d left",
+                                        retrodos::osk_type_pending());
+                } else if (SDL_HasClipboardText()) {
+                    if (ImGui::Button("Paste clipboard", bw)) {
+                        if (char *text = SDL_GetClipboardText()) {
+                            const int n = retrodos::osk_type_text(text);
+                            SDL_free(text);
+                            /* Closing the overlay is the point: the keys have
+                             * to land in the guest, and nothing reaches it
+                             * while our own UI is in front. */
+                            if (n > 0) show_overlay = false;
+                        }
+                    }
+                } else {
+                    ImGui::TextDisabled("Clipboard is empty");
+                }
+
                 if (ImGui::Button("Ctrl+Alt+Del", bw)) {
                     retrodos::osk_send_ctrl_alt_del(); show_overlay = false;
                 }

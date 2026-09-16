@@ -14,6 +14,8 @@
  */
 #include "retrodos_osk.h"
 
+#include <deque>
+
 #include "imgui.h"
 #include "retrodos_host.h"
 
@@ -193,13 +195,90 @@ void draw_row(const Key *keys, int count, float unit_w, float unit_h, float gap)
 
 } /* namespace */
 
+namespace {
+
+/* US-layout character -> scancode, and whether shift is held.
+ *
+ * A table rather than SDL_GetScancodeFromKey because this has to describe the
+ * GUEST's keyboard, not the host's: the emulated machine is a US PC whatever
+ * the real keyboard is, and asking SDL would mean a host set to another layout
+ * typed the wrong characters into DOS. */
+bool scancode_for_char(char c, int &sc, bool &shift)
+{
+    shift = false;
+    if (c >= 'a' && c <= 'z') { sc = SDL_SCANCODE_A + (c - 'a'); return true; }
+    if (c >= 'A' && c <= 'Z') { sc = SDL_SCANCODE_A + (c - 'A'); shift = true; return true; }
+    if (c == '0') { sc = SDL_SCANCODE_0; return true; }
+    if (c >= '1' && c <= '9') { sc = SDL_SCANCODE_1 + (c - '1'); return true; }
+
+    switch (c) {
+    case ' ':  sc = SDL_SCANCODE_SPACE;        return true;
+    case '\n': case '\r': sc = SDL_SCANCODE_RETURN; return true;
+    case '\t': sc = SDL_SCANCODE_TAB;          return true;
+    case '-':  sc = SDL_SCANCODE_MINUS;        return true;
+    case '=':  sc = SDL_SCANCODE_EQUALS;       return true;
+    case '[':  sc = SDL_SCANCODE_LEFTBRACKET;  return true;
+    case ']':  sc = SDL_SCANCODE_RIGHTBRACKET; return true;
+    case '\\': sc = SDL_SCANCODE_BACKSLASH;    return true;
+    case ';':  sc = SDL_SCANCODE_SEMICOLON;    return true;
+    case '\'': sc = SDL_SCANCODE_APOSTROPHE;   return true;
+    case '`':  sc = SDL_SCANCODE_GRAVE;        return true;
+    case ',':  sc = SDL_SCANCODE_COMMA;        return true;
+    case '.':  sc = SDL_SCANCODE_PERIOD;       return true;
+    case '/':  sc = SDL_SCANCODE_SLASH;        return true;
+    /* Shifted pairs, in US-layout order. */
+    case '!':  sc = SDL_SCANCODE_1; shift = true; return true;
+    case '@':  sc = SDL_SCANCODE_2; shift = true; return true;
+    case '#':  sc = SDL_SCANCODE_3; shift = true; return true;
+    case '$':  sc = SDL_SCANCODE_4; shift = true; return true;
+    case '%':  sc = SDL_SCANCODE_5; shift = true; return true;
+    case '^':  sc = SDL_SCANCODE_6; shift = true; return true;
+    case '&':  sc = SDL_SCANCODE_7; shift = true; return true;
+    case '*':  sc = SDL_SCANCODE_8; shift = true; return true;
+    case '(':  sc = SDL_SCANCODE_9; shift = true; return true;
+    case ')':  sc = SDL_SCANCODE_0; shift = true; return true;
+    case '_':  sc = SDL_SCANCODE_MINUS;        shift = true; return true;
+    case '+':  sc = SDL_SCANCODE_EQUALS;       shift = true; return true;
+    case '{':  sc = SDL_SCANCODE_LEFTBRACKET;  shift = true; return true;
+    case '}':  sc = SDL_SCANCODE_RIGHTBRACKET; shift = true; return true;
+    case '|':  sc = SDL_SCANCODE_BACKSLASH;    shift = true; return true;
+    case ':':  sc = SDL_SCANCODE_SEMICOLON;    shift = true; return true;
+    case '"':  sc = SDL_SCANCODE_APOSTROPHE;   shift = true; return true;
+    case '~':  sc = SDL_SCANCODE_GRAVE;        shift = true; return true;
+    case '<':  sc = SDL_SCANCODE_COMMA;        shift = true; return true;
+    case '>':  sc = SDL_SCANCODE_PERIOD;       shift = true; return true;
+    case '?':  sc = SDL_SCANCODE_SLASH;        shift = true; return true;
+    default:   return false;
+    }
+}
+
+struct Typed { int sc; bool shift; };
+std::deque<Typed> g_typing;
+
+} /* namespace */
+
 void osk_update(void)
 {
     /* Releases the key held by the last tap once it has been down long enough.
      * Called every frame, not only while the keyboard is drawn: hiding the
      * keyboard between the press and the release would otherwise leave the key
      * held down in the guest forever. */
-    if (!g_pending.scancode) return;
+    if (!g_pending.scancode) {
+        /* Nothing held: start the next pasted character, if any.
+         *
+         * One per call, and only once the previous key has been released --
+         * a paste driven any faster is delivered inside a single moment of
+         * guest time and arrives as one keystroke or none. */
+        if (!g_typing.empty()) {
+            const Typed t = g_typing.front();
+            g_typing.pop_front();
+            const bool saved_shift = g_shift;
+            g_shift = t.shift;
+            tap(t.sc);
+            g_shift = saved_shift;
+        }
+        return;
+    }
     if (SDL_GetTicks() < g_pending.release_at) return;
 
     retrodos_host_send_key(g_pending.scancode, false);
@@ -249,6 +328,27 @@ void osk_draw(float screen_w, float screen_h)
     draw_row(kRow5, SDL_arraysize(kRow5), unit_w, unit_h, gap);
 
     ImGui::End();
+}
+
+int osk_type_text(const char *text)
+{
+    if (!text) return 0;
+    int n = 0;
+    for (const char *p = text; *p; ++p) {
+        int sc = 0; bool shift = false;
+        if (!scancode_for_char(*p, sc, shift)) continue;   /* silently skipped */
+        /* A cap, so a whole document pasted by accident does not hold the
+         * guest's keyboard for several minutes with no way to stop it. */
+        if (g_typing.size() >= 512) break;
+        g_typing.push_back(Typed{ sc, shift });
+        ++n;
+    }
+    return n;
+}
+
+int osk_type_pending(void)
+{
+    return (int)g_typing.size();
 }
 
 void osk_send_ctrl_alt_del(void)
