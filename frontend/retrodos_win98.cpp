@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 namespace retrodos {
 
@@ -41,6 +42,244 @@ std::string dos_arg(const std::string &path)
 {
     if (path.find(' ') == std::string::npos) return path;
     return "\"" + path + "\"";
+}
+
+/* ------------------------------------------------------------------ */
+/* Reading the guest's own disk                                        */
+/* ------------------------------------------------------------------ */
+/*
+ * Just enough FAT to answer one question: is Windows on this image yet?
+ *
+ * It was worth writing because the alternative is asking the user. The wizard
+ * used to advance from "installing" to "installed" only when somebody pressed
+ * a button saying so -- which is a question the app should not have to ask,
+ * since the answer is sitting in the disk image it just made.
+ *
+ * Deliberately minimal: the MBR's first partition, FAT16 or FAT32, short names
+ * only, one file in one top-level directory. Anything it does not understand
+ * reads as "cannot tell", never as a guess -- a false yes would tell the user
+ * a half-finished install is ready.
+ */
+
+Uint32 le32(const unsigned char *p) {
+    return (Uint32)p[0] | ((Uint32)p[1] << 8) | ((Uint32)p[2] << 16) | ((Uint32)p[3] << 24);
+}
+Uint16 le16(const unsigned char *p) { return (Uint16)((Uint16)p[0] | ((Uint16)p[1] << 8)); }
+
+bool read_at(SDL_IOStream *io, Uint64 off, void *buf, size_t len)
+{
+    if (SDL_SeekIO(io, (Sint64)off, SDL_IO_SEEK_SET) < 0) return false;
+    return SDL_ReadIO(io, buf, len) == len;
+}
+
+/* A directory entry's name, as FAT stores it: eight characters and three,
+ * space padded, with no dot. "WIN     COM" is WIN.COM. */
+bool dirent_named(const unsigned char *e, const char *name83)
+{
+    for (int i = 0; i < 11; ++i)
+        if (SDL_toupper(e[i]) != (unsigned char)name83[i]) return false;
+    return true;
+}
+
+struct Fat {
+    SDL_IOStream *io = nullptr;
+    Uint64 part_off = 0;        /* bytes from the start of the image         */
+    Uint32 bytes_per_sector = 0;
+    Uint32 sectors_per_cluster = 0;
+    Uint64 fat_off = 0;         /* bytes; first FAT                          */
+    Uint64 data_off = 0;        /* bytes; cluster 2                          */
+    Uint64 root_off = 0;        /* bytes; FAT16 fixed root, 0 on FAT32       */
+    Uint32 root_entries = 0;    /* FAT16 only                                */
+    Uint32 root_cluster = 0;    /* FAT32 only                                */
+    bool   fat32 = false;
+    Uint32 cluster_count = 0;
+};
+
+/* The next cluster in a chain, or 0 when the chain ends or the image is not
+ * making sense. 0 is safe: it is never a valid data cluster. */
+Uint32 fat_next(const Fat &f, Uint32 cluster)
+{
+    if (cluster < 2 || cluster >= f.cluster_count + 2) return 0;
+    unsigned char b[4] = {0};
+    if (f.fat32) {
+        if (!read_at(f.io, f.fat_off + (Uint64)cluster * 4, b, 4)) return 0;
+        const Uint32 n = le32(b) & 0x0FFFFFFFu;
+        return (n >= 0x0FFFFFF8u) ? 0 : n;
+    }
+    if (!read_at(f.io, f.fat_off + (Uint64)cluster * 2, b, 2)) return 0;
+    const Uint32 n = le16(b);
+    return (n >= 0xFFF8u) ? 0 : n;
+}
+
+/*
+ * Find one 8.3 name in a directory. Returns its first cluster, or 0 when it is
+ * not there. [want_dir] decides which of a file and a directory of the same
+ * name counts, because "WINDOWS" as a file is not the folder we are after.
+ *
+ * start_cluster 0 means the FAT16 fixed root region.
+ */
+Uint32 dir_find(const Fat &f, Uint32 start_cluster, const char *name83, bool want_dir)
+{
+    const Uint32 cluster_bytes = f.bytes_per_sector * f.sectors_per_cluster;
+    if (cluster_bytes == 0 || cluster_bytes > (1u << 20)) return 0;
+
+    std::vector<unsigned char> buf(cluster_bytes);
+    Uint32 cluster = start_cluster;
+    Uint64 fixed_left = 0;
+    Uint64 fixed_off  = 0;
+    if (start_cluster == 0) {
+        fixed_off  = f.root_off;
+        fixed_left = (Uint64)f.root_entries * 32;
+    }
+
+    /* A chain that loops would otherwise spin here forever, and a corrupt
+     * image is exactly the case this has to survive. */
+    for (Uint32 guard = 0; guard < 65536; ++guard) {
+        Uint64 off, len;
+        if (start_cluster == 0) {
+            if (fixed_left == 0) return 0;
+            len = (fixed_left < cluster_bytes) ? fixed_left : cluster_bytes;
+            off = fixed_off;
+            fixed_off  += len;
+            fixed_left -= len;
+        } else {
+            if (cluster < 2) return 0;
+            off = f.data_off + (Uint64)(cluster - 2) * cluster_bytes;
+            len = cluster_bytes;
+        }
+        if (!read_at(f.io, off, buf.data(), (size_t)len)) return 0;
+
+        for (Uint64 i = 0; i + 32 <= len; i += 32) {
+            const unsigned char *e = &buf[(size_t)i];
+            if (e[0] == 0x00) return 0;          /* nothing beyond this point */
+            if (e[0] == 0xE5) continue;          /* deleted                   */
+            if ((e[11] & 0x0F) == 0x0F) continue; /* long-name fragment       */
+            if (e[11] & 0x08) continue;          /* volume label              */
+            if (!dirent_named(e, name83)) continue;
+            const bool is_dir = (e[11] & 0x10) != 0;
+            if (is_dir != want_dir) continue;
+            Uint32 first = le16(e + 26);
+            if (f.fat32) first |= (Uint32)le16(e + 20) << 16;
+            /* A zero-length file has no cluster; report 1, which is not a
+             * valid cluster but is a truthful "yes, it is there". */
+            return first ? first : 1u;
+        }
+
+        if (start_cluster != 0) {
+            cluster = fat_next(f, cluster);
+            if (cluster == 0) return 0;
+        }
+    }
+    return 0;
+}
+
+/* Open the image's first FAT partition. False when the image is not one, which
+ * includes the perfectly normal case of a disk IMGMAKE made and nothing has
+ * formatted yet. */
+bool fat_open(const std::string &image, Fat &f)
+{
+    f.io = SDL_IOFromFile(image.c_str(), "rb");
+    if (!f.io) return false;
+
+    unsigned char sec[512];
+    if (!read_at(f.io, 0, sec, sizeof sec)) return false;
+    if (sec[510] != 0x55 || sec[511] != 0xAA) return false;
+
+    Uint64 start_lba = 0;
+    for (int i = 0; i < 4; ++i) {
+        const unsigned char *e = sec + 0x1BE + i * 16;
+        const unsigned char type = e[4];
+        switch (type) {
+        case 0x01: case 0x04: case 0x06:      /* FAT12/16                    */
+        case 0x0B: case 0x0C:                 /* FAT32, CHS and LBA          */
+        case 0x0E:                            /* FAT16 LBA                   */
+            start_lba = le32(e + 8);
+            break;
+        default:
+            continue;
+        }
+        if (start_lba) break;
+    }
+    if (!start_lba) return false;
+
+    f.part_off = start_lba * 512ull;
+    if (!read_at(f.io, f.part_off, sec, sizeof sec)) return false;
+
+    f.bytes_per_sector    = le16(sec + 0x0B);
+    f.sectors_per_cluster = sec[0x0D];
+    const Uint32 reserved = le16(sec + 0x0E);
+    const Uint32 num_fats = sec[0x10];
+    f.root_entries        = le16(sec + 0x11);
+    Uint32 total_sectors  = le16(sec + 0x13);
+    Uint32 fat_sectors    = le16(sec + 0x16);
+    if (total_sectors == 0) total_sectors = le32(sec + 0x20);
+    if (fat_sectors == 0) {
+        fat_sectors   = le32(sec + 0x24);
+        f.fat32       = true;
+        f.root_cluster = le32(sec + 0x2C);
+    }
+
+    if (f.bytes_per_sector != 512 || f.sectors_per_cluster == 0 ||
+        num_fats == 0 || reserved == 0 || fat_sectors == 0 || total_sectors == 0)
+        return false;
+
+    f.fat_off = f.part_off + (Uint64)reserved * f.bytes_per_sector;
+    const Uint64 root_sectors =
+        ((Uint64)f.root_entries * 32 + f.bytes_per_sector - 1) / f.bytes_per_sector;
+    const Uint64 first_data =
+        (Uint64)reserved + (Uint64)num_fats * fat_sectors + root_sectors;
+    f.root_off  = f.part_off + ((Uint64)reserved + (Uint64)num_fats * fat_sectors)
+                             * f.bytes_per_sector;
+    f.data_off  = f.part_off + first_data * f.bytes_per_sector;
+    f.cluster_count = (Uint32)((total_sectors - first_data) / f.sectors_per_cluster);
+    if (f.cluster_count == 0) return false;
+    return true;
+}
+
+/*
+ * Is there an installed Windows on this image?
+ *
+ * WIN.COM inside \WINDOWS is the marker. Setup writes it in its file-copy
+ * stage, before the hardware-detection reboots, so this is honestly "Setup has
+ * got as far as copying Windows" -- which is exactly what the Continue phase
+ * means, and it is what lets that phase be reached without asking.
+ */
+bool image_has_windows(const std::string &image)
+{
+    /*
+     * Cached against the image's own timestamp.
+     *
+     * The wizard asks this every frame -- it is part of deciding which step to
+     * show -- and the answer costs a directory walk across an 8GB file. The
+     * image only changes while the guest is running, which is precisely when
+     * nothing is asking, so keying on the modification time gives one scan per
+     * visit to the page. UI thread only, like everything else in this file.
+     */
+    static std::string cached_path;
+    static Sint64      cached_time = 0;
+    static Uint64      cached_size = 0;
+    static bool        cached_result = false;
+
+    SDL_PathInfo info;
+    if (!SDL_GetPathInfo(image.c_str(), &info)) return false;
+    if (image == cached_path && info.modify_time == cached_time &&
+        info.size == cached_size)
+        return cached_result;
+
+    Fat f;
+    bool found = false;
+    if (fat_open(image, f)) {
+        const Uint32 root = f.fat32 ? f.root_cluster : 0;
+        const Uint32 windir = dir_find(f, root, "WINDOWS    ", true);
+        if (windir >= 2) found = dir_find(f, windir, "WIN     COM", false) != 0;
+    }
+    if (f.io) SDL_CloseIO(f.io);
+
+    cached_path   = image;
+    cached_time   = info.modify_time;
+    cached_size   = info.size;
+    cached_result = found;
+    return found;
 }
 
 } /* namespace */
@@ -326,15 +565,47 @@ Win98Phase win98_true_phase(const Win98Install &w)
     if (w.dir.empty()) return Win98Phase::Create;
     if (!file_exists(join(w.dir, w.hdd))) return Win98Phase::Create;
     if (w.phase == Win98Phase::Create)    return Win98Phase::Install;
+
+    /*
+     * Forward, but only on evidence.
+     *
+     * Windows on the disk means the CD has already done its job, and booting
+     * it again restarts Setup on top of a machine that was part way through
+     * installing -- which is what happened the first time this was used, and
+     * it is not a state the user can recover from by reading the screen.
+     *
+     * "Setup has finished every pass" is still not observable from out here,
+     * so this stops at Continue and the last step remains the user's to
+     * confirm. Reaching Continue is the part that matters: from there the
+     * autoexec boots the hard disk, which is what an installed Windows and a
+     * half-installed one both want.
+     */
+    if (w.phase == Win98Phase::Install && win98_installed(w))
+        return Win98Phase::Continue;
+
     return w.phase;
+}
+
+bool win98_installed(const Win98Install &w)
+{
+    if (w.dir.empty()) return false;
+    const std::string img = join(w.dir, w.hdd);
+    if (!file_exists(img)) return false;
+    return image_has_windows(img);
 }
 
 bool win98_load(const std::string &dir, Win98Install &out)
 {
-    out = Win98Install{};
-    out.dir = dir;
+    /* Copied before [out] is cleared: a caller that passes its own member --
+     * win98_load(w.dir, w) -- would otherwise have the path wiped out from
+     * under it by the line below and load from the working directory. */
+    const std::string path = state_path(dir);
+    const std::string folder = dir;
 
-    SDL_IOStream *in = SDL_IOFromFile(state_path(dir).c_str(), "rb");
+    out = Win98Install{};
+    out.dir = folder;
+
+    SDL_IOStream *in = SDL_IOFromFile(path.c_str(), "rb");
     if (!in) return false;
 
     const Sint64 size = SDL_GetIOSize(in);

@@ -86,6 +86,17 @@ std::string win98_conf(const Win98Install &w);
 Win98Phase win98_true_phase(const Win98Install &w);
 
 /*
+ * True when there is an installed Windows on the machine's hard disk image --
+ * read from the image itself, so it is a fact rather than a recorded claim.
+ *
+ * Specifically \WINDOWS\WIN.COM, which Setup writes during its file-copy
+ * stage. That makes this "Windows is on the disk", which is what decides
+ * whether the CD still needs booting; it is NOT "Setup has finished", which
+ * cannot be seen from outside the guest and stays the user's to confirm.
+ */
+bool win98_installed(const Win98Install &w);
+
+/*
  * Back to the beginning. [erase_disk] also removes the hard disk image, which
  * is what "start the installation again" means -- a half-installed Windows is
  * not something Setup can be pointed at a second time.
