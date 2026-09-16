@@ -1722,6 +1722,39 @@ int main(int argc, char **argv)
                 SDL_RenderTexture(ren, fb_tex, nullptr, &dst);
             }
 
+            /*
+             * Hold the pointer while the guest owns the screen.
+             *
+             * A booted guest -- Windows, or anything else past BOOT -- reads
+             * the mouse as PS/2 relative packets. Without capture the host
+             * pointer walks to the edge of the window and simply stops
+             * producing motion, so the guest's pointer drifts a little and
+             * then sticks: the mouse looks broken rather than uncaptured. The
+             * DOS mouse driver hides this because DOSBox-X can place its
+             * cursor absolutely; a guest OS has no such route.
+             *
+             * Released whenever any of our own UI is in front, so the pointer
+             * is always available for the overlay, the keyboard and the pad
+             * editor -- and Escape, which opens the overlay, is therefore also
+             * how you get the pointer back.
+             *
+             * Desktop only. A touch screen has no pointer to capture, and
+             * asking for relative mode there turns taps into deltas from
+             * wherever the last one happened to land.
+             */
+#if !defined(__ANDROID__) && !defined(__APPLE__)
+            {
+                const bool want_grab = (view == View::Emulator) &&
+                                       !show_overlay && !show_osk &&
+                                       !show_controls && !pad.editing();
+                static bool grabbed = false;
+                if (want_grab != grabbed) {
+                    SDL_SetWindowRelativeMouseMode(win, want_grab);
+                    grabbed = want_grab;
+                }
+            }
+#endif
+
             if (g_engine_done.load()) {
                 if (engine.joinable()) engine.join();
                 g_engine_done.store(false);
@@ -2877,6 +2910,9 @@ int main(int argc, char **argv)
                 if (ImGui::Button("Controls", bw)) {
                     show_controls = true; show_overlay = false; show_osk = false;
                 }
+#if !defined(__ANDROID__) && !defined(__APPLE__)
+                ImGui::TextDisabled("Escape releases the mouse");
+#endif
                 if (ImGui::Button("Ctrl+Alt+Del", bw)) {
                     retrodos::osk_send_ctrl_alt_del(); show_overlay = false;
                 }
@@ -3032,6 +3068,10 @@ int main(int argc, char **argv)
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
     if (fb_tex) SDL_DestroyTexture(fb_tex);
+#if !defined(__ANDROID__) && !defined(__APPLE__)
+    /* Never leave the desktop without its pointer. */
+    SDL_SetWindowRelativeMouseMode(win, false);
+#endif
     retrodos::brand_shutdown();      /* before the renderer that owns its texture */
     SDL_DestroyRenderer(ren);
     SDL_DestroyWindow(win);
