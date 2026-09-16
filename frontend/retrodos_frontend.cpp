@@ -775,8 +775,38 @@ void controls_widgets(Settings &s)
                         "the triggers, throttle on A/B, roll on the shoulders.");
 }
 
+/* A combo over a fixed list of DOSBox-X config values.
+ *
+ * The value written to the conf is the string itself, not an index: an index
+ * would silently change meaning the day a value is inserted into the list, and
+ * the config file is meant to stay hand-editable. */
+void conf_combo(const char *label, std::string &value,
+                const char *const *values, const char *const *labels, int count)
+{
+    int cur = 0;
+    for (int i = 0; i < count; ++i)
+        if (value == values[i]) { cur = i; break; }
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16.0f);
+    if (ImGui::Combo(label, &cur, labels, count)) value = values[cur];
+}
+
 void settings_widgets(Settings &s)
 {
+    /* ---------------------------------------------------------------- */
+    ImGui::TextUnformatted("Machine");
+    {
+        static const char *vals[] = { "svga_s3", "svga_s3trio64", "vesa_vbe3",
+                                      "vgaonly", "ega", "cga", "tandy", "pcjr" };
+        static const char *names[] = { "SVGA (S3 Virge) - default", "SVGA (S3 Trio64)",
+                                       "VESA VBE 3", "VGA only", "EGA", "CGA",
+                                       "Tandy 1000", "PCjr" };
+        conf_combo("Graphics", s.machine, vals, names, (int)SDL_arraysize(vals));
+    }
+    TextDimWrapped("The first thing to change when a game starts and draws "
+                   "nothing. Titles written for CGA or Tandy can be confused "
+                   "by an S3, and a few refuse it outright.");
+
+    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
     ImGui::TextUnformatted("CPU");
 #if defined(__APPLE__)
     /* There is no dynamic core on iOS to offer. It recompiles x86 into native
@@ -797,20 +827,42 @@ void settings_widgets(Settings &s)
         TextDimWrapped("Early titles busy-wait for timing and run absurdly fast "
                        "on 'max'. A fixed count is what fixes them.");
     }
+    {
+        static const char *vals[] = { "auto", "386", "486old", "pentium",
+                                      "pentium_mmx" };
+        static const char *names[] = { "Auto - default", "386", "486",
+                                       "Pentium", "Pentium MMX" };
+        conf_combo("Reported CPU", s.cputype, vals, names, (int)SDL_arraysize(vals));
+    }
+    ImGui::Checkbox("Maths coprocessor (FPU)", &s.fpu);
 
     ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
     ImGui::TextUnformatted("Memory");
     ImGui::SliderInt("Memory (MB)", &s.memsize, 1, 64);
     TextDimWrapped("32 MB is the safe default: DOS/4GW 1.97 miscalculates with "
                    "more, and several early-90s titles then refuse to start.");
+    ImGui::Checkbox("Expanded memory (EMS)", &s.ems);
+    ImGui::SameLine();
+    ImGui::Checkbox("Upper memory (UMB)", &s.umb);
+    TextDimWrapped("Both on suits most games. Turning one off is the standard "
+                   "next move when a title will not load at all.");
+    {
+        static const char *vals[] = { "", "3.3", "5.0", "6.22", "7.0", "7.1" };
+        static const char *names[] = { "Default (5.0)", "3.3", "5.0", "6.22",
+                                       "7.0", "7.1 (long filenames, FAT32)" };
+        conf_combo("Reported DOS", s.dos_ver, vals, names, (int)SDL_arraysize(vals));
+    }
 
     ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
     ImGui::TextUnformatted("Sound");
-    static const char *sb[] = { "sbpro2", "sb16", "sbpro1", "sb2", "sb1", "none" };
+    static const char *sb[] = { "sbpro2", "sb16", "sb16vibra", "sbpro1", "sb2",
+                                "sb1", "none" };
     for (int i = 0; i < (int)SDL_arraysize(sb); ++i) {
         if (i) ImGui::SameLine();
         if (ImGui::RadioButton(sb[i], s.sbtype == sb[i])) s.sbtype = sb[i];
     }
+    ImGui::Checkbox("PC speaker", &s.pcspeaker);
+    TextDimWrapped("The beeper is the only sound many pre-1990 titles have.");
 
     ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
     ImGui::TextUnformatted("Display");
@@ -822,6 +874,17 @@ void settings_widgets(Settings &s)
         if (ImGui::Combo("Aspect", &mode, kAspect, 4)) s.aspect_mode = mode;
     }
     ImGui::Checkbox("Integer scaling (sharper, bigger borders)", &s.integer_scale);
+    {
+        static const char *vals[] = { "0", "1", "2", "4", "8" };
+        static const char *names[] = { "Automatic - default", "1 MB", "2 MB",
+                                       "4 MB", "8 MB" };
+        std::string v = std::to_string(s.vmemsize);
+        conf_combo("Video memory", v, vals, names, (int)SDL_arraysize(vals));
+        s.vmemsize = atoi(v.c_str());
+    }
+    TextDimWrapped("Raise it only for a later title that wants a high VESA "
+                   "mode. A number here caps what the guest can use as "
+                   "readily as it raises it.");
 }
 
 } /* namespace */

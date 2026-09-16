@@ -77,6 +77,14 @@ void append_settings(std::string &s, const Settings &v)
     s += "pad_sends_keys=";     s += v.pad_sends_keys ? "1" : "0";     s += "\n";
     s += "pad_sends_joystick="; s += v.pad_sends_joystick ? "1" : "0"; s += "\n";
     s += "onscreen_pad=";       s += v.onscreen_pad ? "1" : "0";       s += "\n";
+    s += "machine=";    s += v.machine;                   s += "\n";
+    s += "cputype=";    s += v.cputype;                   s += "\n";
+    s += "fpu=";        s += v.fpu ? "1" : "0";           s += "\n";
+    s += "vmemsize=";   s += std::to_string(v.vmemsize);  s += "\n";
+    s += "dos_ver=";    s += v.dos_ver;                   s += "\n";
+    s += "ems=";        s += v.ems ? "1" : "0";           s += "\n";
+    s += "umb=";        s += v.umb ? "1" : "0";           s += "\n";
+    s += "pcspeaker=";  s += v.pcspeaker ? "1" : "0";     s += "\n";
     /* One line, so a per-game override file stays readable and a hand edit is
      * a single change rather than twelve. */
     s += "pad_keys=";
@@ -103,6 +111,17 @@ void read_settings(const std::map<std::string, std::string> &kv, Settings &v)
     v.pad_sends_keys     = as_bool(kv, "pad_sends_keys", v.pad_sends_keys);
     v.pad_sends_joystick = as_bool(kv, "pad_sends_joystick", v.pad_sends_joystick);
     v.onscreen_pad       = as_bool(kv, "onscreen_pad", v.onscreen_pad);
+    /* Each falls back to the value already in [v], which is the struct's own
+     * default, so a config written before these keys existed reads as
+     * DOSBox-X's defaults rather than as empty strings and zeroes. */
+    v.machine    = as_str (kv, "machine", v.machine);
+    v.cputype    = as_str (kv, "cputype", v.cputype);
+    v.fpu        = as_bool(kv, "fpu", v.fpu);
+    v.vmemsize   = as_int (kv, "vmemsize", v.vmemsize);
+    v.dos_ver    = as_str (kv, "dos_ver", v.dos_ver);
+    v.ems        = as_bool(kv, "ems", v.ems);
+    v.umb        = as_bool(kv, "umb", v.umb);
+    v.pcspeaker  = as_bool(kv, "pcspeaker", v.pcspeaker);
 
     const std::string keys = as_str(kv, "pad_keys", std::string());
     if (!keys.empty()) {
@@ -257,6 +276,10 @@ std::string build_conf(const Settings &s, const std::string &title,
     c += "working directory option=noprompt\n";
     c += "memsize=" + std::to_string(s.memsize) + "\n";
     c += "title=" + title + "\n";
+    /* The graphics hardware the guest finds. Written unconditionally because
+     * DOSBox-X's own default is what the field defaults to, so this says
+     * exactly what is running rather than leaving it implied. */
+    if (!s.machine.empty()) c += "machine=" + s.machine + "\n";
 
     c += "[cpu]\n";
     /* "auto", never "dynamic", when the user asks for the fast core.
@@ -278,6 +301,27 @@ std::string build_conf(const Settings &s, const std::string &title,
     c += std::string("core=") + (s.core_dynamic ? "auto" : "normal") + "\n";
     if (s.cycles_max) c += "cycles=max\n";
     else              c += "cycles=fixed " + std::to_string(s.cycles_fixed) + "\n";
+    if (!s.cputype.empty()) c += "cputype=" + s.cputype + "\n";
+    c += std::string("fpu=") + (s.fpu ? "true" : "false") + "\n";
+
+    /* Only when asked for. 0 means "say nothing and let DOSBox-X pick", which
+     * is right for almost every DOS title; writing a number here caps what the
+     * guest can use as easily as it raises it. */
+    if (s.vmemsize > 0) {
+        c += "[video]\n";
+        c += "vmemsize=" + std::to_string(s.vmemsize) + "\n";
+    }
+
+    c += "[dos]\n";
+    /* Empty means DOSBox-X's default of 5.0. Worth setting when a title checks
+     * the version, and 7.1 is what a Windows 9x guest needs -- see
+     * retrodos_win98.cpp, which writes its own conf for exactly that reason. */
+    if (!s.dos_ver.empty()) c += "ver=" + s.dos_ver + "\n";
+    c += std::string("ems=") + (s.ems ? "true" : "false") + "\n";
+    c += std::string("umb=") + (s.umb ? "true" : "false") + "\n";
+
+    c += "[speaker]\n";
+    c += std::string("pcspeaker=") + (s.pcspeaker ? "true" : "false") + "\n";
 
     c += "[sblaster]\n";
     c += "sbtype=" + s.sbtype + "\n";

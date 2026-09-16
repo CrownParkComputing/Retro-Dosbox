@@ -35,6 +35,58 @@ struct Settings {
     /* sbpro2 is the safest broad default for the DOS era. */
     std::string sbtype       = "sbpro2";
 
+    /* ---- the machine ----
+     *
+     * Every field below is a DOSBox-X config key, and every default is
+     * DOSBox-X's own, so a config written before these existed behaves
+     * identically after the upgrade.
+     */
+
+    /* [dosbox] machine -- which graphics hardware the guest finds.
+     *
+     * The single biggest compatibility lever there is, and the one worth
+     * reaching for first when a game starts and draws nothing: an early title
+     * written for CGA or Tandy can be confused by an S3, and a few refuse
+     * outright. svga_s3 is DOSBox-X's default and right for most things. */
+    std::string machine      = "svga_s3";
+
+    /* [cpu] cputype -- what CPUID and the feature checks report.
+     *
+     * "auto" suits DOS. It matters when a game refuses to start on a CPU it
+     * thinks is too slow, and for a Windows guest, which looks. */
+    std::string cputype      = "auto";
+
+    /* [cpu] fpu -- the 387. On by default; a handful of titles detect one and
+     * then use it badly, so it is worth being able to remove. */
+    bool        fpu          = true;
+
+    /* [video] vmemsize -- video memory in MB. 0 means "do not write the key",
+     * i.e. let DOSBox-X choose, which is what almost everything wants. VESA
+     * modes on later titles are the reason to raise it. */
+    int         vmemsize     = 0;
+
+    /* [dos] ver -- the DOS version the guest is told it is running on.
+     *
+     * Empty means DOSBox-X's own default (5.0). A few titles check and refuse;
+     * "7.1" additionally enables long filenames and is what makes FAT32 disk
+     * images mountable, which is why a Windows 98 guest needs it. */
+    std::string dos_ver;
+
+    /* [dos] ems / umb -- expanded memory and upper memory blocks.
+     *
+     * Both on by default and both are classic reasons a game will not start:
+     * some titles find EMS and then misuse it, and a few will not load with
+     * UMBs present. Turning one off is a standard first move. */
+    bool        ems          = true;
+    bool        umb          = true;
+
+    /* [speaker] pcspeaker -- the internal beeper.
+     *
+     * On by default. It is the ONLY sound many pre-1990 titles have, so it is
+     * worth surfacing rather than leaving people to conclude a game is
+     * silent. */
+    bool        pcspeaker    = true;
+
     /* DOS modes are frequently non-square-pixel: 320x200 is a 4:3 picture, not
      * 16:10. Kept for configs written before aspect_mode existed. */
     bool        aspect_correct = true;
@@ -82,7 +134,11 @@ struct Settings {
                integer_scale == o.integer_scale &&
                pad_sends_keys == o.pad_sends_keys &&
                pad_sends_joystick == o.pad_sends_joystick &&
-               onscreen_pad == o.onscreen_pad;
+               onscreen_pad == o.onscreen_pad &&
+               machine == o.machine && cputype == o.cputype &&
+               fpu == o.fpu && vmemsize == o.vmemsize &&
+               dos_ver == o.dos_ver && ems == o.ems && umb == o.umb &&
+               pcspeaker == o.pcspeaker;
     }
 };
 
