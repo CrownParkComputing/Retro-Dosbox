@@ -153,6 +153,15 @@ void descent_pad_keys(int *keys);
 /* App-level state that is not per-game. */
 struct AppConfig {
     std::string library_root;      /* where games live                    */
+
+    /* Where disc images live. Empty means "the same place as the games",
+     * which is where they end up for most people and is what the app used to
+     * assume outright. Separate because a disc is not a game: a 600 MB
+     * Windows CD sitting beside the game folders is not something to scan for
+     * executables, and a collection of them wants a folder of its own -- very
+     * often a different drive. */
+    std::string iso_root;
+
     bool        wizard_done = false;
     Settings    defaults;
 

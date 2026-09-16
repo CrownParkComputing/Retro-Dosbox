@@ -212,6 +212,7 @@ bool load_app_config(const std::string &path, AppConfig &out)
     if (text.empty()) return false;
     const auto kv = parse_kv(text);
     out.library_root = as_str(kv, "library_root", out.library_root);
+    out.iso_root     = as_str(kv, "iso_root", out.iso_root);
     out.wizard_done  = as_bool(kv, "wizard_done", false);
     out.pad_layout   = as_str(kv, "pad_layout", out.pad_layout);
     out.pending_launch = as_str(kv, "pending_launch", out.pending_launch);
@@ -223,6 +224,7 @@ bool save_app_config(const std::string &path, const AppConfig &cfg)
 {
     std::string s = "# Retro-DOS settings\n";
     s += "library_root=" + cfg.library_root + "\n";
+    if (!cfg.iso_root.empty()) s += "iso_root=" + cfg.iso_root + "\n";
     s += "wizard_done=";  s += cfg.wizard_done ? "1" : "0"; s += "\n";
     if (!cfg.pad_layout.empty()) s += "pad_layout=" + cfg.pad_layout + "\n";
     if (!cfg.pending_launch.empty()) s += "pending_launch=" + cfg.pending_launch + "\n";

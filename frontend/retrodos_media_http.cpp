@@ -658,27 +658,17 @@ MediaResult do_login(const std::string &email, const std::string &password)
     std::string cookie;
     if (fb && fb->flag("enabled")) {
         /*
-         * Say so before spending a round trip on it.
+         * The `providers` list is not a list of what is allowed.
          *
-         * This deployment reports providers ["google"] and localLogin false,
-         * and Firebase answers a password attempt against a Google account
-         * with INVALID_LOGIN_CREDENTIALS -- which reads as "you typed it
-         * wrong" and sends the user round the same loop again. The server
-         * already publishes which methods it accepts, so the honest answer is
-         * available for free.
+         * An earlier version read providers ["google"] as "this server takes
+         * Google only" and refused a password sign-in before trying it. That
+         * is wrong: the field names the social buttons the website offers, and
+         * email and password work perfectly well alongside them. Refusing on
+         * the strength of it locked people out of an account that was fine.
+         *
+         * So the attempt is made, and Firebase's own answer is what the user
+         * is told.
          */
-        if (const Json *provs = fb->find("providers")) {
-            bool password_ok = false;
-            for (const Json &pv : provs->arr)
-                if (pv.type == Json::Type::Str &&
-                    (pv.str == "password" || pv.str == "email")) password_ok = true;
-            if (!provs->arr.empty() && !password_ok) {
-                r.message = "This account signs in with Google, which needs a browser. "
-                            "Create an API key on the website and paste it above.";
-                return r;
-            }
-        }
-
         const std::string key = fb->s("apiKey");
         if (key.empty()) { r.message = "server did not supply a Firebase key"; return r; }
 

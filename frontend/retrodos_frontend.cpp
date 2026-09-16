@@ -569,6 +569,130 @@ std::string base_name(const std::string &path)
     return (slash == std::string::npos) ? path : path.substr(slash + 1);
 }
 
+/* Where disc images are kept. Empty in the config means "with the games",
+ * which is where they are until somebody says otherwise. */
+std::string disc_root(const retrodos::AppConfig &cfg)
+{
+    return cfg.iso_root.empty() ? cfg.library_root : cfg.iso_root;
+}
+
+std::string size_label(const std::string &path)
+{
+    SDL_PathInfo info;
+    if (!SDL_GetPathInfo(path.c_str(), &info) || info.size <= 0) return std::string();
+    const double mb = (double)info.size / (1024.0 * 1024.0);
+    char buf[32];
+    if (mb >= 1024.0) snprintf(buf, sizeof buf, "%.1f GB", mb / 1024.0);
+    else              snprintf(buf, sizeof buf, "%.0f MB", mb);
+    return buf;
+}
+
+/*
+ * The Discs half of the Library.
+ *
+ * Everything here is a file rather than a folder, so none of the game
+ * machinery applies -- no scanning for an executable, no per-title settings,
+ * no box art. What a disc image is FOR is being put into a machine, so that is
+ * what this offers: the Windows 98 walkthrough's disc, and a reminder that a
+ * running machine can be handed one from the pause menu.
+ */
+void discs_widgets(retrodos::AppConfig &cfg, const std::string &cfg_path,
+                   float cw, bool &jump_to_windows)
+{
+    const std::string root = disc_root(cfg);
+
+    /* ---- where they come from ---- */
+    ImGui::TextDisabled("Discs folder");
+    static char buf[1024] = {0};
+    static std::string primed_for;
+    if (primed_for != root) {
+        SDL_strlcpy(buf, root.c_str(), sizeof(buf));
+        primed_for = root;
+    }
+    ImGui::SetNextItemWidth(cw * 0.7f);
+    if (ImGui::InputText("##discroot", buf, sizeof(buf))) {
+        /* Empty means "wherever the games are", which is the default and the
+         * right answer for anyone who keeps them together. */
+        cfg.iso_root = (buf[0] && root != buf) ? buf : std::string();
+        if (std::string(buf) == cfg.library_root) cfg.iso_root.clear();
+        retrodos::save_app_config(cfg_path, cfg);
+        primed_for.clear();
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Use games folder")) {
+        cfg.iso_root.clear();
+        retrodos::save_app_config(cfg_path, cfg);
+        primed_for.clear();
+    }
+
+    const std::vector<std::string> cds = scan_images(root, true);
+    const std::vector<std::string> fds = scan_images(root, false);
+    ImGui::Text("%zu disc%s, %zu floppy image%s", cds.size(), cds.size() == 1 ? "" : "s",
+                fds.size(), fds.size() == 1 ? "" : "s");
+    ImGui::Separator();
+
+    /* Which one the Windows walkthrough is currently pointed at, so a disc
+     * that is already spoken for says so rather than offering to be chosen
+     * again. */
+    const std::string wdir = cfg.library_root + "/Windows 98";
+    retrodos::Win98Install w;
+    const bool have_machine = retrodos::win98_is_install_dir(wdir) &&
+                              retrodos::win98_load(wdir, w);
+
+    if (cds.empty() && fds.empty()) {
+        ImGui::Spacing();
+        ImGui::TextWrapped("No disc images in:");
+        ImGui::TextDisabled("%s", root.c_str());
+        ImGui::Spacing();
+        TextDimWrapped("Put .iso, .cue, .bin or .chd files there -- or point the "
+                       "box above at wherever you keep them.");
+        return;
+    }
+
+    auto row = [&](const std::string &path, bool is_cd) {
+        ImGui::PushID(path.c_str());
+        const std::string name = base_name(path);
+        const bool chosen = have_machine && w.iso == path;
+
+        ImGui::TextUnformatted(name.c_str());
+        ImGui::SameLine(cw * 0.62f);
+        ImGui::TextDisabled("%s", size_label(path).c_str());
+        ImGui::SameLine(cw * 0.76f);
+        if (is_cd) {
+            if (chosen) {
+                ImGui::TextDisabled("Windows disc");
+            } else if (ImGui::SmallButton("Use for Windows")) {
+                /* Writing it here rather than making the user find the same
+                 * file again inside the walkthrough: this IS the screen where
+                 * you are looking at your discs. */
+                if (!have_machine) w.dir = wdir;
+                SDL_CreateDirectory(wdir.c_str());
+                w.iso = path;
+                retrodos::win98_save(w);
+                jump_to_windows = true;
+            }
+        } else {
+            ImGui::TextDisabled("floppy");
+        }
+        ImGui::PopID();
+    };
+
+    ImGui::BeginChild("##disclist");
+    scroll_by_drag();
+    for (const std::string &p : cds) row(p, true);
+    if (!fds.empty()) {
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        for (const std::string &p : fds) row(p, false);
+    }
+    ImGui::Spacing();
+    ImGui::Separator();
+    TextDimWrapped("A machine that is already running can be handed any of these "
+                   "from the pause menu -- Esc, then Discs and disks.");
+    ImGui::EndChild();
+}
+
 std::string root_label(const std::string &root)
 {
 #if defined(__APPLE__)
@@ -1224,13 +1348,20 @@ int main(int argc, char **argv)
     refresh();
 
     enum class View { Wizard, Shell, Emulator };
-    enum class Page { Library, Artwork, Downloads, Settings, Input, Account,
+    enum class Page { Library, Artwork, Downloads, Settings, Account,
                       Windows, Demo, About };
     View view = cfg.wizard_done ? View::Shell : View::Wizard;
     Page page = Page::Library;
     /* The page drawn on the previous frame, so a page can tell that it has
      * just been opened. */
     Page page_last_frame = Page::Library;
+    /* Which half of the Library is showing: the game folders, or the disc
+     * images. Not a Page of its own -- it is one list or the other of the same
+     * thing, "what you have". */
+    bool show_discs = false;
+    /* Set by the Discs list when a disc is chosen for Windows, so the
+     * walkthrough opens on the step that was waiting for it. */
+    bool jump_to_windows = false;
 
     std::thread engine;
     SDL_Texture *fb_tex = nullptr;
@@ -2197,8 +2328,12 @@ int main(int argc, char **argv)
                         account.signed_in && account.is_admin)
                         nav("Downloads", Page::Downloads);
                 }
+                /* No Input entry. It is a tab on this page beside CPU,
+                 * Video, Sound and DOS, and a second rail button that opens
+                 * the same screen is a second name for one thing -- which is
+                 * exactly how it read: Machine and Input showed the same
+                 * page. */
                 nav("Machine",  Page::Settings);
-                nav("Input",    Page::Input);
                 /* The account sits with the settings rather than on the
                  * Artwork page where it started: signing in is something you
                  * do once and then forget, and hiding it behind a feature page
@@ -2206,7 +2341,7 @@ int main(int argc, char **argv)
                 if (retrodos::media_available()) nav("Account", Page::Account);
                 ImGui::Spacing();
                 ImGui::Separator();
-                nav("Windows", Page::Windows);
+                nav("Windows Setup", Page::Windows);
                 nav("Demo",  Page::Demo);
                 nav("About", Page::About);
 
@@ -2274,157 +2409,195 @@ int main(int argc, char **argv)
                     }
                     ImGui::Separator();
 
-                    ImGui::SetNextItemWidth(cw * 0.6f);
-                    ImGui::InputTextWithHint("##search", "Search local games...",
-                                             search, sizeof(search));
-
-                    /* A-Z strip: with thousands of titles, scrolling is not a
-                     * navigation method. */
-                    /* Only letters that actually have something behind them.
+                    /*
+                     * Games or discs.
                      *
-                     * A DOS collection is never evenly spread, and a full A-Z
-                     * strip is mostly dead targets: pressing one to be shown an
-                     * empty list teaches nothing except that the control lies.
-                     * Showing only the letters present makes every chip a
-                     * promise, and gives the remaining ones more width to be
-                     * tapped with. */
+                     * A disc image is not a game and never was: it has no
+                     * folder to scan, nothing to launch on its own, and a
+                     * 600 MB Windows CD sat in the same list as the titles was
+                     * only ever confusing. They are both things you own and
+                     * both things you go looking for, so they share the page
+                     * and this chooses which.
+                     */
                     {
-                        bool has[27] = { false };   /* 0-25 = A-Z, 26 = '#' */
-                        for (const Game &g : games) {
-                            if (g.initial >= 'A' && g.initial <= 'Z') has[g.initial - 'A'] = true;
-                            else has[26] = true;
-                        }
-
-                        int count = 1;              /* "All" is always offered */
-                        for (bool b : has) if (b) ++count;
-
-                        /* A filter can outlive the games behind it -- a rescan,
-                         * a card removed. Drop it rather than leave the list
-                         * showing nothing with no visible way back. */
-                        if (filter_letter) {
-                            const bool still = (filter_letter == '#')
-                                ? has[26]
-                                : (filter_letter >= 'A' && filter_letter <= 'Z' &&
-                                   has[filter_letter - 'A']);
-                            if (!still) filter_letter = 0;
-                        }
-
-                        const float gapx = 3.0f;
-                        const float cell = (ImGui::GetContentRegionAvail().x -
-                                            gapx * (float)(count - 1)) / (float)count;
-                        bool first = true;
-                        auto chip = [&](const char *label, char value) {
-                            if (!first) ImGui::SameLine(0.0f, gapx);
-                            first = false;
-                            const bool on = (filter_letter == value);
+                        const float half = (ImGui::GetContentRegionAvail().x -
+                                            ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+                        auto kind_chip = [&](const char *label, bool want) {
+                            const bool on = (show_discs == want);
                             if (on) ImGui::PushStyleColor(ImGuiCol_Button,
                                         ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                            if (ImGui::Button(label, ImVec2(cell, 0)))
-                                filter_letter = on ? 0 : value;
+                            if (ImGui::Button(label, ImVec2(half, 0))) show_discs = want;
                             if (on) ImGui::PopStyleColor();
                         };
+                        kind_chip("DOS games", false);
+                        ImGui::SameLine();
+                        kind_chip("Discs", true);
+                    }
+                    ImGui::Spacing();
 
-                        chip("All", 0);
-                        for (char c = 'A'; c <= 'Z'; ++c) {
-                            if (!has[c - 'A']) continue;
-                            ImGui::PushID((int)c);
-                            const char lbl[2] = { c, 0 };
-                            chip(lbl, c);
-                            ImGui::PopID();
+                    if (show_discs) {
+                        discs_widgets(cfg, cfg_path, cw, jump_to_windows);
+                        if (jump_to_windows) {
+                            /* Handled here rather than inside the list, which
+                             * is mid-draw and must not change the page out
+                             * from under itself. */
+                            jump_to_windows = false;
+                            win_stale = true;
+                            page = Page::Windows;
                         }
-                        if (has[26]) chip("#", '#');
-                    }
-
-                    std::vector<int> shown;
-                    shown.reserve(games.size());
-                    for (int i = 0; i < (int)games.size(); ++i) {
-                        if (filter_letter && games[i].initial != filter_letter) continue;
-                        if (search[0] && !SDL_strcasestr(games[i].name.c_str(), search)) continue;
-                        shown.push_back(i);
-                    }
-                    ImGui::Text("%zu of %zu", shown.size(), games.size());
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("  %s", root_label(cfg.library_root).c_str());
-
-                    if (games.empty()) {
-                        ImGui::Spacing();
-                        ImGui::TextWrapped("No games found in:");
-                        ImGui::TextWrapped("%s", root_label(cfg.library_root).c_str());
-                        ImGui::Spacing();
-                        ImGui::TextWrapped("Put each game in its own folder there and press "
-                                           "Rescan, or try the Demo page.");
-                    } else if (shown.empty()) {
-                        ImGui::Spacing();
-                        ImGui::TextDisabled("No games match this filter.");
                     } else {
-                        ImGui::BeginChild("##list");
-                        scroll_by_drag();
-                        const float row_h = ImGui::GetFontSize() * 2.2f;
-                        /* Clip: a widget per title would cost thousands of draw
-                         * calls a frame on a real collection. */
-                        ImGuiListClipper clipper;
-                        clipper.Begin((int)shown.size(), row_h);
-                        while (clipper.Step()) {
-                            for (int r = clipper.DisplayStart; r < clipper.DisplayEnd; ++r) {
-                                const int gi = shown[r];
-                                ImGui::PushID(gi);
+                        ImGui::SetNextItemWidth(cw * 0.6f);
+                        ImGui::InputTextWithHint("##search", "Search local games...",
+                                                 search, sizeof(search));
 
-                                /* Box art where we have it, sized from the row so
-                                 * the list keeps one rhythm whether or not a title
-                                 * matched the catalogue. */
-                                auto ai = art.find(games[gi].name);
-                                if (ai != art.end() && ai->second) {
-                                    SDL_Texture *t = ai->second;
-                                    const float tw = (t->h > 0)
-                                        ? row_h * ((float)t->w / (float)t->h) : row_h;
-                                    ImGui::Image((ImTextureID)(intptr_t)t, ImVec2(tw, row_h));
-                                    ImGui::SameLine();
-                                }
+                        /* A-Z strip: with thousands of titles, scrolling is not a
+                         * navigation method. */
+                        /* Only letters that actually have something behind them.
+                         *
+                         * A DOS collection is never evenly spread, and a full A-Z
+                         * strip is mostly dead targets: pressing one to be shown an
+                         * empty list teaches nothing except that the control lies.
+                         * Showing only the letters present makes every chip a
+                         * promise, and gives the remaining ones more width to be
+                         * tapped with. */
+                        {
+                            bool has[27] = { false };   /* 0-25 = A-Z, 26 = '#' */
+                            for (const Game &g : games) {
+                                if (g.initial >= 'A' && g.initial <= 'Z') has[g.initial - 'A'] = true;
+                                else has[26] = true;
+                            }
 
-                                if (ImGui::Selectable(games[gi].name.c_str(), false, 0,
-                                                      ImVec2(0, row_h)))
-                                    launch(games[gi]);
-                                ImGui::SameLine(cw * 0.58f);
-                                {
-                                    /* Clipped to its column. The command is
-                                     * whatever the game needs -- "boot
-                                     * FREEDOS.IMG -l A" is longer than the
-                                     * column is wide -- and without this it
-                                     * drew straight through the Setup button
-                                     * beside it. */
-                                    const ImVec2 p0 = ImGui::GetCursorScreenPos();
-                                    const float colw = cw * 0.86f - cw * 0.58f
-                                                     - ImGui::GetStyle().ItemSpacing.x * 2.0f;
-                                    ImGui::PushClipRect(p0,
-                                        ImVec2(p0.x + colw, p0.y + row_h), true);
-                                    ImGui::TextDisabled("%s", games[gi].run.empty()
-                                                        ? "(no runnable found)"
-                                                        : games[gi].run.c_str());
-                                    ImGui::PopClipRect();
-                                }
-                                ImGui::SameLine(cw * 0.86f);
-                                /* A machine has no per-game DOS settings to
-                                 * open, so the button beside it says what it
-                                 * will actually do: an installed machine
-                                 * starts, an unfinished one goes to the
-                                 * walkthrough that knows what is left. */
-                                if (games[gi].is_machine) {
-                                    const bool ready = games[gi].machine_phase ==
-                                                       retrodos::Win98Phase::Run;
-                                    if (ImGui::SmallButton(ready ? "Start" : "Setup")) {
-                                        if (ready) launch(games[gi]);
-                                        else {
-                                            win_stale = true;   /* re-read the phase */
-                                            page = Page::Windows;
-                                        }
-                                    }
-                                } else if (ImGui::SmallButton("Setup")) {
-                                    selected = gi; page = Page::Settings;
-                                }
+                            int count = 1;              /* "All" is always offered */
+                            for (bool b : has) if (b) ++count;
+
+                            /* A filter can outlive the games behind it -- a rescan,
+                             * a card removed. Drop it rather than leave the list
+                             * showing nothing with no visible way back. */
+                            if (filter_letter) {
+                                const bool still = (filter_letter == '#')
+                                    ? has[26]
+                                    : (filter_letter >= 'A' && filter_letter <= 'Z' &&
+                                       has[filter_letter - 'A']);
+                                if (!still) filter_letter = 0;
+                            }
+
+                            const float gapx = 3.0f;
+                            const float cell = (ImGui::GetContentRegionAvail().x -
+                                                gapx * (float)(count - 1)) / (float)count;
+                            bool first = true;
+                            auto chip = [&](const char *label, char value) {
+                                if (!first) ImGui::SameLine(0.0f, gapx);
+                                first = false;
+                                const bool on = (filter_letter == value);
+                                if (on) ImGui::PushStyleColor(ImGuiCol_Button,
+                                            ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                                if (ImGui::Button(label, ImVec2(cell, 0)))
+                                    filter_letter = on ? 0 : value;
+                                if (on) ImGui::PopStyleColor();
+                            };
+
+                            chip("All", 0);
+                            for (char c = 'A'; c <= 'Z'; ++c) {
+                                if (!has[c - 'A']) continue;
+                                ImGui::PushID((int)c);
+                                const char lbl[2] = { c, 0 };
+                                chip(lbl, c);
                                 ImGui::PopID();
                             }
+                            if (has[26]) chip("#", '#');
                         }
-                        ImGui::EndChild();
+
+                        std::vector<int> shown;
+                        shown.reserve(games.size());
+                        for (int i = 0; i < (int)games.size(); ++i) {
+                            if (filter_letter && games[i].initial != filter_letter) continue;
+                            if (search[0] && !SDL_strcasestr(games[i].name.c_str(), search)) continue;
+                            shown.push_back(i);
+                        }
+                        ImGui::Text("%zu of %zu", shown.size(), games.size());
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("  %s", root_label(cfg.library_root).c_str());
+
+                        if (games.empty()) {
+                            ImGui::Spacing();
+                            ImGui::TextWrapped("No games found in:");
+                            ImGui::TextWrapped("%s", root_label(cfg.library_root).c_str());
+                            ImGui::Spacing();
+                            ImGui::TextWrapped("Put each game in its own folder there and press "
+                                               "Rescan, or try the Demo page.");
+                        } else if (shown.empty()) {
+                            ImGui::Spacing();
+                            ImGui::TextDisabled("No games match this filter.");
+                        } else {
+                            ImGui::BeginChild("##list");
+                            scroll_by_drag();
+                            const float row_h = ImGui::GetFontSize() * 2.2f;
+                            /* Clip: a widget per title would cost thousands of draw
+                             * calls a frame on a real collection. */
+                            ImGuiListClipper clipper;
+                            clipper.Begin((int)shown.size(), row_h);
+                            while (clipper.Step()) {
+                                for (int r = clipper.DisplayStart; r < clipper.DisplayEnd; ++r) {
+                                    const int gi = shown[r];
+                                    ImGui::PushID(gi);
+
+                                    /* Box art where we have it, sized from the row so
+                                     * the list keeps one rhythm whether or not a title
+                                     * matched the catalogue. */
+                                    auto ai = art.find(games[gi].name);
+                                    if (ai != art.end() && ai->second) {
+                                        SDL_Texture *t = ai->second;
+                                        const float tw = (t->h > 0)
+                                            ? row_h * ((float)t->w / (float)t->h) : row_h;
+                                        ImGui::Image((ImTextureID)(intptr_t)t, ImVec2(tw, row_h));
+                                        ImGui::SameLine();
+                                    }
+
+                                    if (ImGui::Selectable(games[gi].name.c_str(), false, 0,
+                                                          ImVec2(0, row_h)))
+                                        launch(games[gi]);
+                                    ImGui::SameLine(cw * 0.58f);
+                                    {
+                                        /* Clipped to its column. The command is
+                                         * whatever the game needs -- "boot
+                                         * FREEDOS.IMG -l A" is longer than the
+                                         * column is wide -- and without this it
+                                         * drew straight through the Setup button
+                                         * beside it. */
+                                        const ImVec2 p0 = ImGui::GetCursorScreenPos();
+                                        const float colw = cw * 0.86f - cw * 0.58f
+                                                         - ImGui::GetStyle().ItemSpacing.x * 2.0f;
+                                        ImGui::PushClipRect(p0,
+                                            ImVec2(p0.x + colw, p0.y + row_h), true);
+                                        ImGui::TextDisabled("%s", games[gi].run.empty()
+                                                            ? "(no runnable found)"
+                                                            : games[gi].run.c_str());
+                                        ImGui::PopClipRect();
+                                    }
+                                    ImGui::SameLine(cw * 0.86f);
+                                    /* A machine has no per-game DOS settings to
+                                     * open, so the button beside it says what it
+                                     * will actually do: an installed machine
+                                     * starts, an unfinished one goes to the
+                                     * walkthrough that knows what is left. */
+                                    if (games[gi].is_machine) {
+                                        const bool ready = games[gi].machine_phase ==
+                                                           retrodos::Win98Phase::Run;
+                                        if (ImGui::SmallButton(ready ? "Start" : "Setup")) {
+                                            if (ready) launch(games[gi]);
+                                            else {
+                                                win_stale = true;   /* re-read the phase */
+                                                page = Page::Windows;
+                                            }
+                                        }
+                                    } else if (ImGui::SmallButton("Setup")) {
+                                        selected = gi; page = Page::Settings;
+                                    }
+                                    ImGui::PopID();
+                                }
+                            }
+                            ImGui::EndChild();
+                        }
                     }
                 }
 
@@ -2499,20 +2672,28 @@ int main(int argc, char **argv)
                                            "art. Administrators can also download games.");
                         ImGui::Spacing();
 
-                        /*
-                         * The API key comes FIRST because it is the one that
-                         * always works.
-                         *
-                         * An account that signs in with Google has no password
-                         * for the form below to check -- Firebase rejects it
-                         * with a message about credentials, which reads as "you
-                         * typed it wrong" rather than "this account does not
-                         * work that way". A key is also revocable from the
-                         * website and is the better thing to leave on a shared
-                         * handheld.
-                         */
-                        ImGui::TextWrapped("Paste an API key from your account page on the "
-                                           "website (it starts with rmk_):");
+                        /* Email and password first, because that is how
+                         * people sign in. */
+                        ImGui::SetNextItemWidth(cw * 0.55f);
+                        ImGui::InputText("Email", m_email, sizeof(m_email));
+                        ImGui::SetNextItemWidth(cw * 0.55f);
+                        ImGui::InputText("Password", m_pass, sizeof(m_pass),
+                                         ImGuiInputTextFlags_Password);
+                        ImGui::BeginDisabled(media_busy || !m_email[0] || !m_pass[0]);
+                        if (ImGui::Button("Sign in")) {
+                            media_busy = true; media_msg = "Signing in...";
+                            retrodos::media_begin_login(m_email, m_pass);
+                        }
+                        ImGui::EndDisabled();
+
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+                        /* An API key stays as the alternative: it is revocable
+                         * from the website and is the better thing to leave
+                         * behind on a shared handheld. */
+                        ImGui::TextWrapped("Or paste an API key from your account page "
+                                           "(it starts with rmk_):");
                         ImGui::SetNextItemWidth(cw * 0.55f);
                         ImGui::InputText("API key", m_key, sizeof(m_key),
                                          ImGuiInputTextFlags_Password);
@@ -2529,23 +2710,6 @@ int main(int argc, char **argv)
                                 SDL_free(clip);
                             }
                         }
-
-                        ImGui::Spacing();
-                        ImGui::Separator();
-                        ImGui::Spacing();
-                        ImGui::TextWrapped("Or sign in with an email and password, if your "
-                                           "account has one:");
-                        ImGui::SetNextItemWidth(cw * 0.55f);
-                        ImGui::InputText("Email", m_email, sizeof(m_email));
-                        ImGui::SetNextItemWidth(cw * 0.55f);
-                        ImGui::InputText("Password", m_pass, sizeof(m_pass),
-                                         ImGuiInputTextFlags_Password);
-                        ImGui::BeginDisabled(media_busy || !m_email[0] || !m_pass[0]);
-                        if (ImGui::Button("Sign in")) {
-                            media_busy = true; media_msg = "Signing in...";
-                            retrodos::media_begin_login(m_email, m_pass);
-                        }
-                        ImGui::EndDisabled();
                     }
                 }
 
@@ -2648,7 +2812,7 @@ int main(int argc, char **argv)
                 }
 
                 /* ---- Machine settings ---- */
-                else if (page == Page::Settings || page == Page::Input) {
+                else if (page == Page::Settings) {
                     static Settings edit;
                     static int edit_for = -3;
 
@@ -2657,9 +2821,7 @@ int main(int argc, char **argv)
                      * Input opens on Input, and after that whichever tab you
                      * pick stays picked until you leave. */
                     const MachineTab open_tab =
-                        !page_changed       ? MachineTab::None
-                        : page == Page::Input ? MachineTab::Input
-                                              : MachineTab::Cpu;
+                        page_changed ? MachineTab::Cpu : MachineTab::None;
 
                     const bool per_game = (selected >= 0 && selected < (int)games.size());
                     if (edit_for != selected) {
@@ -2669,11 +2831,9 @@ int main(int argc, char **argv)
                         edit_for = selected;
                     }
 
-                    if (per_game) ImGui::Text("%s - %s",
-                                              page == Page::Input ? "Input" : "Machine",
+                    if (per_game) ImGui::Text("Machine - %s",
                                               games[selected].name.c_str());
-                    else ImGui::Text("%s - defaults for all games",
-                                     page == Page::Input ? "Input" : "Machine");
+                    else ImGui::TextUnformatted("Machine - defaults for all games");
 
                     /* No cross-link button any more. Input is a tab beside
                      * CPU, Video, Sound and DOS, so both halves of a game's
@@ -2704,7 +2864,7 @@ int main(int argc, char **argv)
                     if (ImGui::Button("Cancel")) {
                         edit_for = -3; selected = -1; page = Page::Library;
                     }
-                    if (page == Page::Settings) {
+                    {
                         ImGui::SameLine();
                         if (ImGui::Button("Change games folder")) {
                             edit_for = -3; selected = -1;
@@ -3341,8 +3501,8 @@ int main(int argc, char **argv)
                     static std::vector<std::string> cds, fds;
                     static bool media_scanned = false;
                     if (!media_scanned) {
-                        cds = scan_images(cfg.library_root, true);
-                        fds = scan_images(cfg.library_root, false);
+                        cds = scan_images(disc_root(cfg), true);
+                        fds = scan_images(disc_root(cfg), false);
                         if (!win_running_dir.empty()) {
                             for (const std::string &p : scan_images(win_running_dir, true))
                                 cds.push_back(p);
