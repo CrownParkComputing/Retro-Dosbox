@@ -2870,34 +2870,98 @@ int main(int argc, char **argv)
                     }
                     ImGui::Separator();
 
+                    /*
+                     * The whole catalogue is fetched once and filtered here.
+                     *
+                     * It used to send the search and the letter to the server
+                     * and re-fetch -- which meant nothing happened at all until
+                     * you noticed the Browse button and pressed it again. A
+                     * filter that needs a second button is a filter that looks
+                     * broken. There are a few hundred titles and they are
+                     * already in memory, so filtering is instant and, unlike
+                     * the round trip, cannot half-work.
+                     */
                     ImGui::SetNextItemWidth(cw * 0.45f);
                     ImGui::InputTextWithHint("##csearch", "Search catalogue...",
                                              cat_search, sizeof(cat_search));
                     ImGui::SameLine();
                     ImGui::BeginDisabled(media_busy);
-                    if (ImGui::Button("Browse")) {
+                    if (ImGui::Button(catalogue.empty() ? "Load catalogue" : "Refresh")) {
                         media_busy = true; art_mode = false;
                         media_msg = "Loading catalogue...";
-                        const char l[2] = { cat_letter, 0 };
-                        retrodos::media_begin_catalogue(cat_search,
-                                                        cat_letter ? l : "", true);
+                        cat_letter = 0;
+                        cat_search[0] = 0;
+                        retrodos::media_begin_catalogue("", "", true);
                     }
                     ImGui::EndDisabled();
 
-                    if (ImGui::Button("All")) cat_letter = 0;
-                    for (char c = 'A'; c <= 'Z'; ++c) {
-                        ImGui::SameLine(0.0f, 2.0f);
-                        ImGui::PushID(1000 + c);
-                        const bool on = (cat_letter == c);
-                        if (on) ImGui::PushStyleColor(ImGuiCol_Button,
-                                    ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                        const char lbl[2] = { c, 0 };
-                        if (ImGui::Button(lbl)) cat_letter = on ? 0 : c;
-                        if (on) ImGui::PopStyleColor();
-                        ImGui::PopID();
+                    /* Only the letters with something behind them, the same
+                     * rule the DOS Library follows: every chip a promise. */
+                    if (!catalogue.empty()) {
+                        bool has[27] = { false };
+                        auto initial_of = [](const std::string &t) -> char {
+                            const char c = t.empty() ? '#'
+                                         : (char)SDL_toupper((unsigned char)t[0]);
+                            return (c >= 'A' && c <= 'Z') ? c : '#';
+                        };
+                        for (const retrodos::MediaGame &g : catalogue) {
+                            const char c = initial_of(g.title);
+                            if (c == '#') has[26] = true; else has[c - 'A'] = true;
+                        }
+                        if (cat_letter) {
+                            const bool still = (cat_letter == '#')
+                                ? has[26]
+                                : (cat_letter >= 'A' && cat_letter <= 'Z' &&
+                                   has[cat_letter - 'A']);
+                            if (!still) cat_letter = 0;
+                        }
+
+                        int count = 1;
+                        for (bool b : has) if (b) ++count;
+                        const float gapx = 3.0f;
+                        const float cell = (ImGui::GetContentRegionAvail().x -
+                                            gapx * (float)(count - 1)) / (float)count;
+                        bool first = true;
+                        auto chip = [&](const char *label, char value) {
+                            if (!first) ImGui::SameLine(0.0f, gapx);
+                            first = false;
+                            const bool on = (cat_letter == value);
+                            if (on) ImGui::PushStyleColor(ImGuiCol_Button,
+                                        ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                            if (ImGui::Button(label, ImVec2(cell, 0)))
+                                cat_letter = on ? 0 : value;
+                            if (on) ImGui::PopStyleColor();
+                        };
+                        chip("All", 0);
+                        for (char c = 'A'; c <= 'Z'; ++c) {
+                            if (!has[c - 'A']) continue;
+                            ImGui::PushID(1000 + c);
+                            const char lbl[2] = { c, 0 };
+                            chip(lbl, c);
+                            ImGui::PopID();
+                        }
+                        if (has[26]) chip("#", '#');
                     }
 
-                    ImGui::Text("%zu titles", catalogue.size());
+                    std::vector<int> cshown;
+                    cshown.reserve(catalogue.size());
+                    for (int i = 0; i < (int)catalogue.size(); ++i) {
+                        const std::string &t = catalogue[i].title;
+                        if (cat_letter) {
+                            const char c0 = t.empty() ? '#'
+                                          : (char)SDL_toupper((unsigned char)t[0]);
+                            const char ini = (c0 >= 'A' && c0 <= 'Z') ? c0 : '#';
+                            if (ini != cat_letter) continue;
+                        }
+                        if (cat_search[0] && !SDL_strcasestr(t.c_str(), cat_search)) continue;
+                        cshown.push_back(i);
+                    }
+
+                    if (catalogue.empty())
+                        ImGui::TextDisabled("Press Load catalogue.");
+                    else
+                        ImGui::Text("%zu of %zu titles", cshown.size(), catalogue.size());
+
                     ImGui::BeginChild("##cat");
                     scroll_by_drag();
                     /* Rows are given room: at arm's length a list packed at text
@@ -2905,10 +2969,10 @@ int main(int argc, char **argv)
                      * download that can run to a gigabyte. */
                     const float row_h = ImGui::GetFrameHeight() * 1.7f;
                     ImGuiListClipper clip;
-                    clip.Begin((int)catalogue.size(), row_h);
+                    clip.Begin((int)cshown.size(), row_h);
                     while (clip.Step()) {
                         for (int r = clip.DisplayStart; r < clip.DisplayEnd; ++r) {
-                            const retrodos::MediaGame &cg = catalogue[r];
+                            const retrodos::MediaGame &cg = catalogue[cshown[r]];
                             ImGui::PushID(r);
                             ImGui::AlignTextToFramePadding();
                             ImGui::TextUnformatted(cg.title.c_str());
