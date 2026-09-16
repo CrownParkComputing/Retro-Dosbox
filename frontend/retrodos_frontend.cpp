@@ -2284,83 +2284,287 @@ int main(int argc, char **argv)
 
             /* ---------------- Wizard ---------------- */
             if (view == View::Wizard) {
+                /*
+                 * The first-run walkthrough, one step at a time.
+                 *
+                 * It used to be a single screen: a list of folders and a
+                 * Continue button. That is enough for somebody who already
+                 * knows what a DOS game is and where this app can reach, and
+                 * no help at all to anyone else -- and on iOS it asked a
+                 * question with exactly one possible answer, which reads as a
+                 * broken control rather than a sandbox.
+                 *
+                 * The steps are the same everywhere; what changes inside them
+                 * is what each platform can actually do. That difference is
+                 * stated rather than hidden, because "you cannot put games
+                 * anywhere else" is a fact about the device, and a user who is
+                 * not told it will go looking for the setting that is missing.
+                 */
+                static int wstep = 0;
+
                 ImGui::SetNextWindowPos(origin);
                 ImGui::SetNextWindowSize(full);
                 ImGui::Begin("##wizard", nullptr,
                              ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                              ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
 
-                ImGui::TextUnformatted(RETRODOS_APP_NAME " - first run");
-                ImGui::Separator();
-                ImGui::Spacing();
-                ImGui::TextWrapped("Choose where your DOS games live. Each game should "
-                                   "be its own folder.");
-                ImGui::Spacing();
-#if defined(__APPLE__)
-                TextDimWrapped("This folder is the app's own, and it is the one the "
-                               "Files app shows. Put each game in its own folder "
-                               "inside it and it appears in the library next time "
-                               "you look.");
-#else
-                TextDimWrapped("These folders belong to the app, so they need no "
-                               "permission and work on removable storage. Android "
-                               "only grants access elsewhere as a document tree, "
-                               "which the emulator cannot mount directly -- games "
-                               "kept outside have to be copied in first.");
-#endif
-                ImGui::Spacing();
+                static const char *kWizName[] = {
+                    "Welcome", "Where games live", "Add a game", "Try it", "Ready"
+                };
+                const int kWizSteps = (int)SDL_arraysize(kWizName);
+                if (wstep < 0) wstep = 0;
+                if (wstep >= kWizSteps) wstep = kWizSteps - 1;
 
-                for (size_t i = 0; i < roots.size(); ++i) {
-                    ImGui::PushID((int)i);
-                    if (ImGui::RadioButton("##root", cfg.library_root == roots[i]))
-                        cfg.library_root = roots[i];
+                ImGui::Text("%s  -  step %d of %d: %s", RETRODOS_APP_NAME,
+                            wstep + 1, kWizSteps, kWizName[wstep]);
+                ImGui::Separator();
+
+                ImGui::BeginChild("##wizbody",
+                                  ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.6f));
+                scroll_by_drag();
+                ImGui::PushTextWrapPos(0.0f);
+
+                bool wiz_next = true;      /* may this step be left forwards? */
+
+                if (wstep == 0) {
+                    ImGui::TextWrapped("This runs DOS software -- the games and programs "
+                                       "that came on floppies and CD-ROMs for the PC.");
+                    ImGui::Spacing();
+                    ImGui::TextWrapped("A game here is a FOLDER. Whatever was on the disc "
+                                       "or in the download -- the .EXE, its data files, "
+                                       "everything -- goes in one folder, and that folder "
+                                       "is the game. There is nothing to install.");
+                    ImGui::Spacing();
+                    TextDimWrapped("The emulator is " RETRODOS_APP_CORE ", which is free "
+                                   "software under the GPL. This app does not supply DOS "
+                                   "games, and cannot fetch them for you.");
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    TextDimWrapped("Three short steps: where games live, how to put one "
+                                   "there, and something to run right now.");
+                }
+
+                else if (wstep == 1) {
+#if defined(__APPLE__)
+                    /*
+                     * No choice to offer, so none is offered.
+                     *
+                     * iOS gives an app one directory it can both read and show
+                     * to the user -- its own Documents -- and a document-tree
+                     * grant elsewhere is not something the emulator can mount.
+                     * A folder list here would be one radio button, and a
+                     * "choose another" button would do nothing. Saying why is
+                     * more use than either.
+                     */
+                    ImGui::TextWrapped("Games live in this app's own folder:");
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("%s", root_label(cfg.library_root).c_str());
+                    ImGui::Spacing();
+                    ImGui::TextWrapped("There is nowhere else to choose. iPhone and iPad "
+                                       "only let an app read its own folder, so this one "
+                                       "is it -- and it is the one the Files app shows "
+                                       "you.");
+                    ImGui::Spacing();
+                    TextDimWrapped("That restriction is the platform's, not ours: an app "
+                                   "cannot reach your Downloads, another app's files, or "
+                                   "an external drive without you copying things in.");
+#else
+                    ImGui::TextWrapped("Choose where your games live. Each game is its own "
+                                       "folder inside it.");
+                    ImGui::Spacing();
+                    for (size_t i = 0; i < roots.size(); ++i) {
+                        ImGui::PushID((int)i);
+                        if (ImGui::RadioButton("##root", cfg.library_root == roots[i]))
+                            cfg.library_root = roots[i];
+                        ImGui::SameLine();
+                        ImGui::TextWrapped("%s%s", root_label(roots[i]).c_str(),
+                                           path_is_dir(roots[i]) ? ""
+                                                                 : "   (will be created)");
+                        ImGui::PopID();
+                    }
+                    ImGui::Spacing();
+                    TextDimWrapped("These belong to the app, so they need no permission "
+                                   "and work on removable storage.");
+                    ImGui::Spacing();
+                    if (ImGui::Button("Rescan volumes")) {
+                        roots = candidate_roots();
+                        for (const auto &r : roots) SDL_CreateDirectory(r.c_str());
+                    }
+
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    ImGui::TextWrapped("Or pick any folder on the device:");
+                    if (ImGui::Button(retrodos::saf_has_grant() ? "Choose a different folder"
+                                                                : "Choose folder..."))
+                        retrodos::saf_pick_folder();
+                    TextDimWrapped("Android grants the exact folder you pick and nothing "
+                                   "else. The emulator mounts real paths, so a game kept "
+                                   "there is copied in the first time you play it.");
+#endif
+                    if (cfg.library_root.empty()) {
+                        wiz_next = false;
+                        ImGui::Spacing();
+                        ImGui::TextDisabled("Choose a folder to continue.");
+                    }
+                }
+
+                else if (wstep == 2) {
+                    SDL_CreateDirectory(cfg.library_root.c_str());
+#if defined(__APPLE__)
+                    ImGui::TextWrapped("To add a game:");
+                    ImGui::Bullet();
+                    ImGui::TextWrapped("Open the Files app.");
+                    ImGui::Bullet();
+                    ImGui::TextWrapped("Go to On My iPhone (or On My iPad) and find "
+                                       RETRODOS_APP_NAME ".");
+                    ImGui::Bullet();
+                    ImGui::TextWrapped("Put the game's folder inside the 'dos' folder "
+                                       "there.");
+                    ImGui::Spacing();
+                    TextDimWrapped("A zip works too: unzip it in Files first, then move "
+                                   "the folder across. AirDrop, iCloud Drive and a USB "
+                                   "drive all land in Files, so all three work.");
+#elif defined(__ANDROID__)
+                    ImGui::TextWrapped("To add a game, copy its folder into:");
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("%s", root_label(cfg.library_root).c_str());
+                    ImGui::Spacing();
+                    TextDimWrapped("Any file manager can reach it, and so can a USB cable. "
+                                   "Or use Add game on the library screen, which copies a "
+                                   "folder in for you.");
+#else
+                    ImGui::TextWrapped("To add a game, copy its folder into:");
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("%s", cfg.library_root.c_str());
+#endif
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+
+                    /* The step confirms itself. Instructions followed in
+                     * another app are instructions you cannot tell you have
+                     * got right, and "did that work?" is the question this
+                     * screen exists to answer. */
+                    if (ImGui::Button("Look again")) refresh();
                     ImGui::SameLine();
-                    ImGui::TextWrapped("%s%s", root_label(roots[i]).c_str(),
-                                       path_is_dir(roots[i]) ? "" : "   (will be created)");
-                    ImGui::PopID();
+                    {
+                        int found = 0;
+                        for (const Game &g : games) if (!g.is_machine) ++found;
+                        if (found > 0) {
+                            ImGui::PushStyleColor(ImGuiCol_Text,
+                                                  ImVec4(0.55f, 0.85f, 0.55f, 1.0f));
+                            ImGui::Text("%d found", found);
+                            ImGui::PopStyleColor();
+                        } else {
+                            ImGui::TextDisabled("nothing there yet");
+                        }
+                    }
+                    ImGui::Spacing();
+                    TextDimWrapped("You can skip this and come back to it -- the next step "
+                                   "has something to run either way.");
                 }
 
-                ImGui::Spacing();
+                else if (wstep == 3) {
+                    ImGui::TextWrapped("Something to run right now, with no files of your "
+                                       "own:");
+                    ImGui::Spacing();
+                    if (!retrodos::demo_prepare(demo_dir)) {
+                        ImGui::TextDisabled("The bundled content could not be unpacked.");
+                    } else {
+                        const retrodos::DemoKind kinds[] = { retrodos::DemoKind::Demo,
+                                                             retrodos::DemoKind::FreeDos };
+                        for (retrodos::DemoKind k : kinds) {
+                            Game g;
+                            g.name    = retrodos::demo_title(k);
+                            g.dir     = demo_dir;
+                            g.run     = retrodos::demo_command(k, g.run_raw);
+                            g.is_demo = true;
+                            ImGui::PushID(g.name.c_str());
+                            if (ImGui::Button(g.name.c_str(),
+                                              ImVec2(ImGui::GetFontSize() * 18.0f, 0))) {
+                                /* Finish first. Starting the emulator from
+                                 * inside the wizard and leaving wizard_done
+                                 * false would drop the user back here when the
+                                 * game exits, with no sign of what happened. */
+                                cfg.wizard_done = true;
+                                retrodos::save_app_config(cfg_path, cfg);
+                                view = View::Shell;
+                                launch(g);
+                            }
+                            ImGui::PopID();
+                        }
+                        ImGui::Spacing();
+                        TextDimWrapped("FreeDOS 1.3 is included verbatim under the GPL; "
+                                       "the demonstration program was written for this "
+                                       "project.");
+                    }
+                }
+
+                else {
+                    ImGui::TextWrapped("That is everything.");
+                    ImGui::Spacing();
+                    ImGui::TextWrapped("Your games folder:");
+                    ImGui::TextDisabled("%s", root_label(cfg.library_root).c_str());
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    ImGui::TextWrapped("Worth knowing:");
+                    ImGui::Bullet();
+                    ImGui::TextWrapped("A game that will not start is usually a Machine "
+                                       "setting -- the graphics card, or the speed.");
+                    ImGui::Bullet();
+                    ImGui::TextWrapped("Windows Setup installs Windows 98 from a CD image "
+                                       "you own, step by step.");
+                    ImGui::Bullet();
+                    ImGui::TextWrapped("This screen is under Machine, as Change games "
+                                       "folder, whenever you want it again.");
+                }
+
+                ImGui::PopTextWrapPos();
+                ImGui::EndChild();
+
+                /* ---- footer ---- */
                 ImGui::Separator();
-                ImGui::Spacing();
-#if defined(__APPLE__)
-                /* No folder picker here. iOS has no document-tree grant that the
-                 * emulator could mount, saf_pick_folder is a stub, and offering a
-                 * button that does nothing is worse than not offering one. Files
-                 * is how a game arrives, so say that instead. */
-                TextDimWrapped("To add a game: open the Files app, find Retro-DOS "
-                               "under On My iPhone or On My iPad, and put the "
-                               "game's folder inside it.");
-#else
-                ImGui::TextWrapped("Or choose any folder on the device:");
-                if (retrodos::saf_has_grant()) {
-                    ImGui::TextWrapped("Using: %s", library_label(cfg.library_root).c_str());
-                    TextDimWrapped("Each game is copied to the folder above the first "
-                                   "time you play it, then mounted from there.");
-                } else {
-                    TextDimWrapped("Android grants only the exact folder you pick, never "
-                                   "all files. The emulator mounts real paths, so the "
-                                   "game you launch is copied in first.");
-                }
-                if (ImGui::Button(retrodos::saf_has_grant() ? "Choose a different folder"
-                                                            : "Choose folder...",
-                                  ImVec2(0, 0)))
-                    retrodos::saf_pick_folder();
-#endif
-
-                ImGui::Spacing();
-#if !defined(__APPLE__)
-                if (ImGui::Button("Rescan volumes", ImVec2(0, 0))) {
-                    roots = candidate_roots();
-                    for (const auto &r : roots) SDL_CreateDirectory(r.c_str());
-                }
+                ImGui::BeginDisabled(wstep == 0);
+                if (ImGui::Button("Back")) --wstep;
+                ImGui::EndDisabled();
                 ImGui::SameLine();
-#endif
-                if (ImGui::Button("Continue", ImVec2(0, 0))) {
+
+                if (wstep < kWizSteps - 1) {
+                    ImGui::BeginDisabled(!wiz_next);
+                    if (ImGui::Button("Next")) {
+                        if (wstep == 1) SDL_CreateDirectory(cfg.library_root.c_str());
+                        if (wstep == 1) refresh();
+                        ++wstep;
+                    }
+                    ImGui::EndDisabled();
+                } else {
+                    if (ImGui::Button("Finish")) {
+                        SDL_CreateDirectory(cfg.library_root.c_str());
+                        cfg.wizard_done = true;
+                        retrodos::save_app_config(cfg_path, cfg);
+                        refresh();
+                        wstep = 0;
+                        view = View::Shell;
+                    }
+                }
+
+                ImGui::SameLine();
+                ImGui::TextDisabled("   step %d of %d", wstep + 1, kWizSteps);
+
+                /* Always available. Somebody who has done this before should not
+                 * have to read it again, and somebody who is stuck on a step
+                 * should not be trapped there. */
+                ImGui::SameLine(ImGui::GetContentRegionAvail().x -
+                                ImGui::GetFontSize() * 4.0f);
+                if (ImGui::SmallButton("Skip")) {
                     SDL_CreateDirectory(cfg.library_root.c_str());
                     cfg.wizard_done = true;
                     retrodos::save_app_config(cfg_path, cfg);
                     refresh();
+                    wstep = 0;
                     view = View::Shell;
                 }
                 ImGui::End();
