@@ -798,101 +798,141 @@ void conf_combo(const char *label, std::string &value,
     if (ImGui::Combo(label, &cur, labels, count)) value = values[cur];
 }
 
-void settings_widgets(Settings &s)
+void settings_widgets(Settings &s, bool start_on_input)
 {
-    /* ---------------------------------------------------------------- */
-    ImGui::TextUnformatted("Machine");
-    {
-        static const char *vals[] = { "svga_s3", "svga_s3trio64", "vesa_vbe3",
-                                      "vgaonly", "ega", "cga", "tandy", "pcjr" };
-        static const char *names[] = { "SVGA (S3 Virge) - default", "SVGA (S3 Trio64)",
-                                       "VESA VBE 3", "VGA only", "EGA", "CGA",
-                                       "Tandy 1000", "PCjr" };
-        conf_combo("Graphics", s.machine, vals, names, (int)SDL_arraysize(vals));
-    }
-    TextDimWrapped("The first thing to change when a game starts and draws "
-                   "nothing. Titles written for CGA or Tandy can be confused "
-                   "by an S3, and a few refuse it outright.");
+    /*
+     * Tabbed the way DOSBox-X's own menu bar is: CPU, Video, Sound, DOS.
+     *
+     * Not an arbitrary grouping -- those are literally its top-level menus
+     * (def_menu__toplevel in src/gui/menu.cpp), so anyone who has used
+     * DOSBox-X already knows which tab a setting is under, and anyone reading
+     * its documentation finds our tab named the same as the menu the docs
+     * mention. One long scrolling column was also simply hard to search.
+     */
+    if (!ImGui::BeginTabBar("##machine", ImGuiTabBarFlags_None)) return;
 
-    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
-    ImGui::TextUnformatted("CPU");
+    if (ImGui::BeginTabItem("CPU")) {
+        ImGui::Spacing();
 #if defined(__APPLE__)
-    /* There is no dynamic core on iOS to offer. It recompiles x86 into native
-     * code at run time, which needs memory that is both writable and
-     * executable, and iOS does not permit that -- so the core is built without
-     * it and the interpreter is the only one there is. Offering a "faster"
-     * switch that cannot make anything faster is worse than offering nothing:
-     * a player toggling it and seeing no change will reasonably conclude the
-     * setting is broken. */
-    TextDimWrapped("Interpreter core -- iOS does not permit the just-in-time "
-                   "recompilation a faster core needs.");
+        /* There is no dynamic core on iOS to offer. It recompiles x86 into
+         * native code at run time, which needs memory that is both writable
+         * and executable, and iOS does not permit that -- so the core is built
+         * without it and the interpreter is the only one there is. Offering a
+         * "faster" switch that cannot make anything faster is worse than
+         * offering nothing: a player toggling it and seeing no change will
+         * reasonably conclude the setting is broken. */
+        TextDimWrapped("Interpreter core -- iOS does not permit the just-in-time "
+                       "recompilation a faster core needs.");
 #else
-    ImGui::Checkbox("Dynamic core (faster; turn off if a game misbehaves)", &s.core_dynamic);
+        ImGui::Checkbox("Dynamic core (faster; turn off if a game misbehaves)",
+                        &s.core_dynamic);
 #endif
-    ImGui::Checkbox("Cycles: max", &s.cycles_max);
-    if (!s.cycles_max) {
-        ImGui::SliderInt("Fixed cycles", &s.cycles_fixed, 300, 100000);
-        TextDimWrapped("Early titles busy-wait for timing and run absurdly fast "
-                       "on 'max'. A fixed count is what fixes them.");
-    }
-    {
-        static const char *vals[] = { "auto", "386", "486old", "pentium",
-                                      "pentium_mmx" };
-        static const char *names[] = { "Auto - default", "386", "486",
-                                       "Pentium", "Pentium MMX" };
-        conf_combo("Reported CPU", s.cputype, vals, names, (int)SDL_arraysize(vals));
-    }
-    ImGui::Checkbox("Maths coprocessor (FPU)", &s.fpu);
-
-    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
-    ImGui::TextUnformatted("Memory");
-    ImGui::SliderInt("Memory (MB)", &s.memsize, 1, 64);
-    TextDimWrapped("32 MB is the safe default: DOS/4GW 1.97 miscalculates with "
-                   "more, and several early-90s titles then refuse to start.");
-    ImGui::Checkbox("Expanded memory (EMS)", &s.ems);
-    ImGui::SameLine();
-    ImGui::Checkbox("Upper memory (UMB)", &s.umb);
-    TextDimWrapped("Both on suits most games. Turning one off is the standard "
-                   "next move when a title will not load at all.");
-    {
-        static const char *vals[] = { "", "3.3", "5.0", "6.22", "7.0", "7.1" };
-        static const char *names[] = { "Default (5.0)", "3.3", "5.0", "6.22",
-                                       "7.0", "7.1 (long filenames, FAT32)" };
-        conf_combo("Reported DOS", s.dos_ver, vals, names, (int)SDL_arraysize(vals));
+        ImGui::Checkbox("Cycles: max", &s.cycles_max);
+        if (!s.cycles_max) {
+            ImGui::SliderInt("Fixed cycles", &s.cycles_fixed, 300, 100000);
+            TextDimWrapped("Early titles busy-wait for timing and run absurdly "
+                           "fast on 'max'. A fixed count is what fixes them.");
+        }
+        {
+            static const char *vals[] = { "auto", "386", "486old", "pentium",
+                                          "pentium_mmx" };
+            static const char *names[] = { "Auto - default", "386", "486",
+                                           "Pentium", "Pentium MMX" };
+            conf_combo("Reported CPU", s.cputype, vals, names,
+                       (int)SDL_arraysize(vals));
+        }
+        ImGui::Checkbox("Maths coprocessor (FPU)", &s.fpu);
+        ImGui::EndTabItem();
     }
 
-    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
-    ImGui::TextUnformatted("Sound");
-    static const char *sb[] = { "sbpro2", "sb16", "sb16vibra", "sbpro1", "sb2",
-                                "sb1", "none" };
-    for (int i = 0; i < (int)SDL_arraysize(sb); ++i) {
-        if (i) ImGui::SameLine();
-        if (ImGui::RadioButton(sb[i], s.sbtype == sb[i])) s.sbtype = sb[i];
-    }
-    ImGui::Checkbox("PC speaker", &s.pcspeaker);
-    TextDimWrapped("The beeper is the only sound many pre-1990 titles have.");
+    if (ImGui::BeginTabItem("Video")) {
+        ImGui::Spacing();
+        {
+            static const char *vals[] = { "svga_s3", "svga_s3trio64", "vesa_vbe3",
+                                          "vgaonly", "ega", "cga", "tandy", "pcjr" };
+            static const char *names[] = { "SVGA (S3 Virge) - default",
+                                           "SVGA (S3 Trio64)", "VESA VBE 3",
+                                           "VGA only", "EGA", "CGA",
+                                           "Tandy 1000", "PCjr" };
+            conf_combo("Graphics card", s.machine, vals, names,
+                       (int)SDL_arraysize(vals));
+        }
+        TextDimWrapped("The first thing to change when a game starts and draws "
+                       "nothing. Titles written for CGA or Tandy can be confused "
+                       "by an S3, and a few refuse it outright.");
+        {
+            static const char *vals[] = { "0", "1", "2", "4", "8" };
+            static const char *names[] = { "Automatic - default", "1 MB", "2 MB",
+                                           "4 MB", "8 MB" };
+            std::string v = std::to_string(s.vmemsize);
+            conf_combo("Video memory", v, vals, names, (int)SDL_arraysize(vals));
+            s.vmemsize = atoi(v.c_str());
+        }
+        TextDimWrapped("Raise it only for a later title that wants a high VESA "
+                       "mode. A number here caps what the guest can use as "
+                       "readily as it raises it.");
 
-    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
-    ImGui::TextUnformatted("Display");
-    {
-        static const char *kAspect[] = { "Auto (as the mode intends)", "4:3",
-                                         "16:9", "Fill the screen" };
-        int mode = (s.aspect_mode >= 0 && s.aspect_mode < 4) ? s.aspect_mode : 0;
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16.0f);
-        if (ImGui::Combo("Aspect", &mode, kAspect, 4)) s.aspect_mode = mode;
+        ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+        ImGui::TextUnformatted("On this screen");
+        {
+            static const char *kAspect[] = { "Auto (as the mode intends)", "4:3",
+                                             "16:9", "Fill the screen" };
+            int mode = (s.aspect_mode >= 0 && s.aspect_mode < 4) ? s.aspect_mode : 0;
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16.0f);
+            if (ImGui::Combo("Aspect", &mode, kAspect, 4)) s.aspect_mode = mode;
+        }
+        ImGui::Checkbox("Integer scaling (sharper, bigger borders)",
+                        &s.integer_scale);
+        ImGui::EndTabItem();
     }
-    ImGui::Checkbox("Integer scaling (sharper, bigger borders)", &s.integer_scale);
-    {
-        static const char *vals[] = { "0", "1", "2", "4", "8" };
-        static const char *names[] = { "Automatic - default", "1 MB", "2 MB",
-                                       "4 MB", "8 MB" };
-        std::string v = std::to_string(s.vmemsize);
-        conf_combo("Video memory", v, vals, names, (int)SDL_arraysize(vals));
-        s.vmemsize = atoi(v.c_str());
+
+    if (ImGui::BeginTabItem("Sound")) {
+        ImGui::Spacing();
+        static const char *sb[] = { "sbpro2", "sb16", "sb16vibra", "sbpro1",
+                                    "sb2", "sb1", "none" };
+        for (int i = 0; i < (int)SDL_arraysize(sb); ++i) {
+            if (i) ImGui::SameLine();
+            if (ImGui::RadioButton(sb[i], s.sbtype == sb[i])) s.sbtype = sb[i];
+        }
+        TextDimWrapped("Sound Blaster Pro 2 is the safest broad choice for the "
+                       "DOS era. sb16vibra is the card Windows 9x has a driver "
+                       "for.");
+        ImGui::Spacing();
+        ImGui::Checkbox("PC speaker", &s.pcspeaker);
+        TextDimWrapped("The beeper is the only sound many pre-1990 titles have.");
+        ImGui::EndTabItem();
     }
-    TextDimWrapped("Raise it only for a later title that wants a high VESA "
-                   "mode. A number here caps what the guest can use as "
-                   "readily as it raises it.");
+
+    if (ImGui::BeginTabItem("Input", nullptr,
+                            start_on_input ? ImGuiTabItemFlags_SetSelected : 0)) {
+        ImGui::Spacing();
+        controls_widgets(s);
+        ImGui::EndTabItem();
+    }
+
+    if (ImGui::BeginTabItem("DOS")) {
+        ImGui::Spacing();
+        ImGui::SliderInt("Memory (MB)", &s.memsize, 1, 64);
+        TextDimWrapped("32 MB is the safe default: DOS/4GW 1.97 miscalculates "
+                       "with more, and several early-90s titles then refuse to "
+                       "start.");
+        ImGui::Spacing();
+        ImGui::Checkbox("Expanded memory (EMS)", &s.ems);
+        ImGui::SameLine();
+        ImGui::Checkbox("Upper memory (UMB)", &s.umb);
+        TextDimWrapped("Both on suits most games. Turning one off is the "
+                       "standard next move when a title will not load at all.");
+        {
+            static const char *vals[] = { "", "3.3", "5.0", "6.22", "7.0", "7.1" };
+            static const char *names[] = { "Default (5.0)", "3.3", "5.0", "6.22",
+                                           "7.0", "7.1 (long filenames, FAT32)" };
+            conf_combo("Reported DOS", s.dos_ver, vals, names,
+                       (int)SDL_arraysize(vals));
+        }
+        ImGui::EndTabItem();
+    }
+
+    ImGui::EndTabBar();
 }
 
 } /* namespace */
@@ -2221,29 +2261,18 @@ int main(int argc, char **argv)
                     else ImGui::Text("%s - defaults for all games",
                                      page == Page::Input ? "Input" : "Machine");
 
-                    /* Both halves of a game's setup, reachable from each other
-                     * WITHOUT losing which game is being edited. The rail's own
-                     * Machine/Input entries clear the selection -- they mean
-                     * "the defaults" -- so without this there was no route at
-                     * all to a single game's input bindings from its Setup
-                     * button. */
-                    {
-                        const Page other = (page == Page::Input) ? Page::Settings
-                                                                 : Page::Input;
-                        ImGui::SameLine(cw - ImGui::GetFontSize() * 9.0f);
-                        if (ImGui::SmallButton(page == Page::Input
-                                                   ? "Machine settings"
-                                                   : "Input bindings"))
-                            page = other;
-                    }
+                    /* No cross-link button any more. Input is a tab beside
+                     * CPU, Video, Sound and DOS, so both halves of a game's
+                     * setup are one click apart and neither loses which game is
+                     * being edited -- which is the whole job the button was
+                     * doing. */
                     ImGui::Separator();
 
                     ImGui::BeginChild("##sset",
                                       ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.6f),
                                       0, ImGuiWindowFlags_NoScrollbar);
                     scroll_by_drag();
-                    if (page == Page::Input) controls_widgets(edit);
-                    else                     settings_widgets(edit);
+                    settings_widgets(edit, page == Page::Input);
                     if (per_game) {
                         ImGui::Spacing();
                         ImGui::TextDisabled("Saved for this game only; others keep the "
@@ -2273,78 +2302,137 @@ int main(int argc, char **argv)
 
                 /* ---- Demo ---- */
                 else if (page == Page::Windows) {
-                    ImGui::TextUnformatted("Windows 98");
-                    ImGui::Separator();
-
-                    /* The machine lives in the library folder like a game, so
-                     * once installed it appears in the Library and starts the
-                     * same way everything else does. */
+                    /*
+                     * A walkthrough, not a settings page.
+                     *
+                     * Installing Windows 98 is a five-stage procedure with two
+                     * reboots in the middle, and the first version of this was
+                     * three labelled sections and a button -- everything was on
+                     * screen and nothing told you what to do next. One step at
+                     * a time, each saying what is about to happen and what you
+                     * will see when it works, is what this actually needs.
+                     */
                     const std::string wdir = cfg.library_root + "/Windows 98";
 
                     static retrodos::Win98Install w;
                     static bool w_loaded = false;
+                    static int  step = 0;
                     if (!w_loaded) {
                         if (!retrodos::win98_load(wdir, w)) w.dir = wdir;
                         w_loaded = true;
+                        /* Resume where the machine actually is, so coming back
+                         * to this page does not start the explanation again. */
+                        step = (w.phase == retrodos::Win98Phase::Create)   ? 0
+                             : (w.phase == retrodos::Win98Phase::Install)  ? 2
+                             : (w.phase == retrodos::Win98Phase::Continue) ? 3
+                                                                           : 4;
                     }
 
-                    /* Observable facts beat remembered state: if the disk
-                     * image is there, the first step is done whatever the file
-                     * says. This is what makes the page correct after a
-                     * crash, a manual delete, or a copy from another device. */
-                    const bool have_disk =
-                        retrodos::win98_blocker(w).find("hard disk") == std::string::npos &&
-                        w.phase != retrodos::Win98Phase::Create;
-                    if (w.phase == retrodos::Win98Phase::Create) {
-                        retrodos::Win98Install probe = w;
-                        probe.phase = retrodos::Win98Phase::Install;
-                        if (retrodos::win98_blocker(probe).find("hard disk") == std::string::npos) {
-                            w.phase = retrodos::Win98Phase::Install;
+                    /*
+                     * Re-check against the files every frame, not once on load.
+                     *
+                     * A recorded phase that has run ahead of reality is the
+                     * worst failure this page has: a saved Continue with no
+                     * disk image mounts nothing and boots nothing, and the
+                     * guest just sits at a prompt saying nothing about a
+                     * missing disk. So the phase is clamped DOWN to what the
+                     * files support, and the step follows it back.
+                     */
+                    {
+                        const retrodos::Win98Phase truth = retrodos::win98_true_phase(w);
+                        if (truth != w.phase) {
+                            w.phase = truth;
                             retrodos::win98_save(w);
                         }
+                        if (w.phase == retrodos::Win98Phase::Create && step > 2)
+                            step = 2;         /* no disk: cannot be past making it */
+                        else if (w.phase == retrodos::Win98Phase::Install && step < 2)
+                            step = 2;
                     }
-                    (void)have_disk;
 
-                    TextDimWrapped("Runs a real copy of Windows 98 in the "
-                                   "emulator, following DOSBox-X's own guide. "
-                                   "You supply the CD; nothing is downloaded.");
+                    static const char *kStepName[] = {
+                        "Before you start", "Choose your CD", "Make the disk",
+                        "Run Setup", "Finish Setup", "Done"
+                    };
+                    const int kSteps = (int)SDL_arraysize(kStepName);
+                    if (step < 0) step = 0;
+                    if (step >= kSteps) step = kSteps - 1;
+
+                    ImGui::Text("Windows 98  -  step %d of %d: %s",
+                                step + 1, kSteps, kStepName[step]);
+                    ImGui::Separator();
                     ImGui::Spacing();
 
-                    /* ---- step 1: the CD ---- */
-                    ImGui::TextUnformatted("1.  Your Windows 98 CD");
-                    static char iso_buf[1024] = {0};
-                    static bool iso_primed = false;
-                    if (!iso_primed) {
-                        SDL_strlcpy(iso_buf, w.iso.c_str(), sizeof(iso_buf));
-                        iso_primed = true;
-                    }
-                    ImGui::SetNextItemWidth(cw * 0.72f);
-                    if (ImGui::InputText("##iso", iso_buf, sizeof(iso_buf)))
-                        w.iso = iso_buf;
-                    ImGui::SameLine();
-                    if (ImGui::Button("Use this disc")) {
-                        w.iso = iso_buf;
-                        retrodos::win98_save(w);
-                    }
+                    bool can_advance = true;
 
-                    /* Anything that looks like a disc image in the library
-                     * folder, offered as a button -- typing an absolute path
-                     * on a handheld with an on-screen keyboard is miserable. */
-                    {
+                    ImGui::BeginChild("##wizbody",
+                                      ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.8f),
+                                      0, ImGuiWindowFlags_NoScrollbar);
+                    scroll_by_drag();
+                    /* Prose wraps to a column, not to the window. On a wide
+                     * desktop the content pane is thousands of pixels across,
+                     * and a paragraph set that wide is genuinely hard to read:
+                     * the eye loses the line coming back. About 70 characters
+                     * is the usual advice and it is what this works out at. */
+                    const float col = std::min(cw, ImGui::GetFontSize() * 34.0f);
+                    ImGui::PushTextWrapPos(col);
+
+                    if (step == 0) {
+                        ImGui::TextWrapped("This installs a real copy of Windows 98 "
+                                           "inside the emulator, following DOSBox-X's "
+                                           "own guide.");
+                        ImGui::Spacing();
+                        ImGui::TextWrapped("You need two things:");
+                        ImGui::Bullet();
+                        ImGui::TextWrapped("A Windows 98 CD image (.iso). It must be an "
+                                           "OEM Full edition -- those are the ones that "
+                                           "boot on their own. An upgrade disc will not.");
+                        ImGui::Bullet();
+                        ImGui::TextWrapped("About 20 minutes, and patience: Setup runs "
+                                           "on the slow, accurate processor because the "
+                                           "fast one crashes it.");
+                        ImGui::Spacing();
+                        TextDimWrapped("Nothing is downloaded and no Windows files are "
+                                       "bundled with this app. The disc is yours.");
+                        ImGui::Spacing();
+                        ImGui::TextWrapped("Everything is kept in:");
+                        ImGui::TextDisabled("%s", wdir.c_str());
+                    }
+                    else if (step == 1) {
+                        ImGui::TextWrapped("Pick your Windows 98 disc image.");
+                        ImGui::Spacing();
+
+                        static char iso_buf[1024] = {0};
+                        static bool iso_primed = false;
+                        if (!iso_primed) {
+                            SDL_strlcpy(iso_buf, w.iso.c_str(), sizeof(iso_buf));
+                            iso_primed = true;
+                        }
+
+                        /* Discs in the games folder, as buttons. Typing an
+                         * absolute path on a handheld with an on-screen
+                         * keyboard is miserable. */
                         int offered = 0;
                         if (SDL_Storage *st = SDL_OpenFileStorage(cfg.library_root.c_str())) {
                             if (char **found = SDL_GlobStorageDirectory(
                                     st, nullptr, "*.iso", SDL_GLOB_CASEINSENSITIVE, nullptr)) {
-                                for (int i = 0; found[i] && offered < 6; ++i) {
-                                    /* One level only: the glob recurses, and a
+                                for (int i = 0; found[i] && offered < 8; ++i) {
+                                    /* Top level only: the glob recurses, and a
                                      * nested hit is a path DOS cannot mount. */
                                     if (SDL_strchr(found[i], '/')) continue;
                                     ImGui::PushID(i);
-                                    if (ImGui::Button(found[i])) {
-                                        w.iso = cfg.library_root + "/" + found[i];
+                                    const std::string full =
+                                        cfg.library_root + "/" + found[i];
+                                    const bool chosen = (w.iso == full);
+                                    if (chosen)
+                                        ImGui::PushStyleColor(ImGuiCol_Button,
+                                            ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                                    if (ImGui::Button(found[i], ImVec2(cw * 0.86f, 0))) {
+                                        w.iso = full;
                                         SDL_strlcpy(iso_buf, w.iso.c_str(), sizeof(iso_buf));
                                         retrodos::win98_save(w);
                                     }
+                                    if (chosen) ImGui::PopStyleColor();
                                     ImGui::PopID();
                                     ++offered;
                                 }
@@ -2352,87 +2440,217 @@ int main(int argc, char **argv)
                             }
                             SDL_CloseStorage(st);
                         }
-                        if (!offered)
-                            TextDimWrapped("Put the .iso in your games folder and it "
-                                           "will be offered here.");
-                    }
+                        if (!offered) {
+                            TextDimWrapped("No .iso found in your games folder. Put one "
+                                           "there and it will be listed here, or type "
+                                           "the full path:");
+                        } else {
+                            ImGui::Spacing();
+                            TextDimWrapped("Or type a full path:");
+                        }
+                        ImGui::SetNextItemWidth(cw * 0.86f);
+                        if (ImGui::InputText("##isopath", iso_buf, sizeof(iso_buf))) {
+                            w.iso = iso_buf;
+                            retrodos::win98_save(w);
+                        }
 
-                    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
-
-                    /* ---- step 2: the disk ---- */
-                    ImGui::TextUnformatted("2.  The hard disk");
-                    static int size_choice = 0;
-                    static const char *kSizes[] = { "8 GB (recommended)", "2 GB",
-                                                    "16 GB", "32 GB" };
-                    static const int   kSizeMb[] = { 0, 2048, 16384, 32768 };
-                    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
-                    ImGui::Combo("Size", &size_choice, kSizes, (int)SDL_arraysize(kSizes));
-                    w.size_mb = kSizeMb[size_choice];
-                    TextDimWrapped("Over 512 MB is formatted FAT32. Windows 98's own "
-                                   "IDE driver cannot handle a volume above 128 GB.");
-
-                    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
-
-                    /* ---- step 3: run it ---- */
-                    ImGui::TextUnformatted("3.  Install");
-                    ImGui::Text("Next step: %s", retrodos::win98_phase_name(w.phase));
-
-                    const std::string blocked = retrodos::win98_blocker(w);
-                    if (!blocked.empty()) {
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.3f, 1.0f));
-                        ImGui::TextWrapped("%s", blocked.c_str());
-                        ImGui::PopStyleColor();
-                    }
-
-                    ImGui::BeginDisabled(!blocked.empty());
-                    if (ImGui::Button(w.phase == retrodos::Win98Phase::Create
-                                          ? "Create the disk"
-                                          : (w.phase == retrodos::Win98Phase::Run
-                                                 ? "Start Windows 98"
-                                                 : "Run this step"),
-                                      ImVec2(cw * 0.55f, 0))) {
-                        SDL_CreateDirectory(w.dir.c_str());
-                        retrodos::win98_save(w);
-                        Game g;
-                        g.name = "Windows 98";
-                        g.dir  = w.dir;
-                        g.conf_override = retrodos::win98_conf(w);
-                        launch(g);
-                    }
-                    ImGui::EndDisabled();
-
-                    /* The two transitions the app cannot observe. SETUP
-                     * rebooting and Windows finally being installed both look
-                     * identical from out here -- the engine simply exits -- so
-                     * the person who just watched it is asked rather than
-                     * guessed at. */
-                    if (w.phase == retrodos::Win98Phase::Install) {
                         ImGui::Spacing();
-                        if (ImGui::Button("Setup has restarted - carry on")) {
+                        if (w.iso.empty()) {
+                            can_advance = false;
+                            ImGui::TextDisabled("Choose a disc to continue.");
+                        } else {
+                            ImGui::Text("Using: %s", w.iso.c_str());
+                        }
+                    }
+                    else if (step == 2) {
+                        ImGui::TextWrapped("Windows needs a hard disk to install onto. "
+                                           "This makes an empty one.");
+                        ImGui::Spacing();
+                        static int size_choice = 0;
+                        static const char *kSizes[] = { "8 GB (recommended)", "2 GB",
+                                                        "16 GB", "32 GB" };
+                        static const int   kSizeMb[] = { 0, 2048, 16384, 32768 };
+                        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+                        ImGui::Combo("Size", &size_choice, kSizes,
+                                     (int)SDL_arraysize(kSizes));
+                        w.size_mb = kSizeMb[size_choice];
+                        TextDimWrapped("It only takes up what it actually uses, so a "
+                                       "bigger disk costs nothing until you fill it. "
+                                       "Over 512 MB is formatted FAT32; Windows 98's own "
+                                       "driver cannot handle more than 128 GB.");
+                        ImGui::Spacing();
+
+                        const bool made = (w.phase != retrodos::Win98Phase::Create);
+                        if (made) {
+                            ImGui::TextWrapped("The disk is ready.");
+                        } else {
+                            if (ImGui::Button("Make the disk", ImVec2(cw * 0.5f, 0))) {
+                                SDL_CreateDirectory(w.dir.c_str());
+                                retrodos::win98_save(w);
+                                Game g;
+                                g.name = "Windows 98";
+                                g.dir  = w.dir;
+                                g.conf_override = retrodos::win98_conf(w);
+                                launch(g);
+                            }
+                            TextDimWrapped("A DOS screen appears for a moment and closes "
+                                           "again by itself. That is all this step does.");
+                            can_advance = false;
+                        }
+                    }
+                    else if (step == 3) {
+                        ImGui::TextWrapped("Now Setup itself. This starts the machine "
+                                           "from the CD.");
+                        ImGui::Spacing();
+                        ImGui::TextWrapped("What you will see:");
+                        ImGui::Bullet();
+                        ImGui::TextWrapped("A menu headed 'Microsoft Windows 98 CD-ROM "
+                                           "Startup Menu'. Choose 'Boot from CD-ROM'.");
+                        ImGui::Bullet();
+                        ImGui::TextWrapped("Setup formats the disk and copies files. It "
+                                           "restarts the machine part way through.");
+                        ImGui::Bullet();
+                        ImGui::TextWrapped("When it restarts you land back at a DOS "
+                                           "prompt. That is expected -- come back here "
+                                           "and press Next.");
+                        ImGui::Spacing();
+
+                        const std::string blocked = retrodos::win98_blocker(w);
+                        if (!blocked.empty()) {
+                            ImGui::PushStyleColor(ImGuiCol_Text,
+                                                  ImVec4(1.0f, 0.75f, 0.3f, 1.0f));
+                            ImGui::TextWrapped("%s", blocked.c_str());
+                            ImGui::PopStyleColor();
+                        }
+                        ImGui::BeginDisabled(!blocked.empty());
+                        if (ImGui::Button("Start Setup", ImVec2(cw * 0.5f, 0))) {
+                            w.phase = retrodos::Win98Phase::Install;
+                            retrodos::win98_save(w);
+                            Game g;
+                            g.name = "Windows 98";
+                            g.dir  = w.dir;
+                            g.conf_override = retrodos::win98_conf(w);
+                            launch(g);
+                        }
+                        ImGui::EndDisabled();
+                        ImGui::Spacing();
+                        TextDimWrapped("If it says 'This is not a bootable disk', the "
+                                       "disc is not an OEM Full edition and cannot start "
+                                       "Setup on its own.");
+                    }
+                    else if (step == 4) {
+                        ImGui::TextWrapped("Setup has restarted the machine at least "
+                                           "once. From here it boots from the hard disk "
+                                           "and finishes, with the CD still in the "
+                                           "drive because it keeps asking for it.");
+                        ImGui::Spacing();
+                        ImGui::TextWrapped("Expect to run this a few times: Windows "
+                                           "restarts itself several times before it is "
+                                           "finished, and each restart brings you back "
+                                           "here.");
+                        ImGui::Spacing();
+                        const std::string blocked4 = retrodos::win98_blocker(w);
+                        if (!blocked4.empty()) {
+                            ImGui::PushStyleColor(ImGuiCol_Text,
+                                                  ImVec4(1.0f, 0.75f, 0.3f, 1.0f));
+                            ImGui::TextWrapped("%s", blocked4.c_str());
+                            ImGui::PopStyleColor();
+                        }
+                        ImGui::BeginDisabled(!blocked4.empty());
+                        if (ImGui::Button("Continue Setup", ImVec2(cw * 0.5f, 0))) {
                             w.phase = retrodos::Win98Phase::Continue;
                             retrodos::win98_save(w);
+                            Game g;
+                            g.name = "Windows 98";
+                            g.dir  = w.dir;
+                            g.conf_override = retrodos::win98_conf(w);
+                            launch(g);
                         }
-                        TextDimWrapped("Press this when the installer reboots and you "
-                                       "are back at a DOS prompt.");
-                    } else if (w.phase == retrodos::Win98Phase::Continue) {
+                        ImGui::EndDisabled();
                         ImGui::Spacing();
-                        if (ImGui::Button("Windows is installed")) {
+                        ImGui::Separator();
+                        ImGui::Spacing();
+                        ImGui::TextWrapped("Once Windows reaches its desktop and asks "
+                                           "you nothing more, it is installed:");
+                        if (ImGui::Button("Windows is installed", ImVec2(cw * 0.5f, 0))) {
                             w.phase = retrodos::Win98Phase::Run;
                             retrodos::win98_save(w);
+                            step = 5;
                         }
-                    } else if (w.phase == retrodos::Win98Phase::Run) {
+                        can_advance = false;   /* the button above is the way on */
+                    }
+                    else {
+                        ImGui::TextWrapped("Windows 98 is installed.");
                         ImGui::Spacing();
-                        ImGui::Checkbox("Faster CPU core now that setup is done",
+                        if (ImGui::Button("Start Windows 98", ImVec2(cw * 0.5f, 0))) {
+                            w.phase = retrodos::Win98Phase::Run;
+                            retrodos::win98_save(w);
+                            Game g;
+                            g.name = "Windows 98";
+                            g.dir  = w.dir;
+                            g.conf_override = retrodos::win98_conf(w);
+                            launch(g);
+                        }
+                        ImGui::Spacing();
+                        ImGui::Checkbox("Faster processor now that Setup is done",
                                         &w.fast_core_after_install);
                         if (ImGui::IsItemDeactivatedAfterEdit()) retrodos::win98_save(w);
-                        TextDimWrapped("Installation must run on the slow interpreter; "
-                                       "afterwards the faster core is usually fine.");
+                        TextDimWrapped("Setup has to run on the slow, accurate "
+                                       "processor. Afterwards the fast one is usually "
+                                       "fine, and much faster.");
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+                        TextDimWrapped("To stop Windows asking for the CD, copy the "
+                                       "\\WIN98 folder from the disc to C: once you are "
+                                       "inside Windows.");
                     }
 
-                    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
-                    TextDimWrapped("Your CD must be an OEM Full edition - those are the "
-                                   "ones that boot. No Windows files are bundled with "
-                                   "this app or downloaded by it.");
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndChild();
+
+                    /* ---- the wizard's own footer ---- */
+                    ImGui::Separator();
+                    ImGui::BeginDisabled(step == 0);
+                    if (ImGui::Button("Back")) --step;
+                    ImGui::EndDisabled();
+                    ImGui::SameLine();
+                    ImGui::BeginDisabled(!can_advance || step >= kSteps - 1);
+                    if (ImGui::Button("Next")) ++step;
+                    ImGui::EndDisabled();
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("   step %d of %d", step + 1, kSteps);
+
+                    /* Start again.
+                     *
+                     * A half-finished Windows cannot be resumed by pointing
+                     * Setup at it a second time -- it has to go back to an
+                     * empty disk -- so this is the only way out of an install
+                     * that went wrong, and it needs to be reachable from every
+                     * step rather than only the one where things broke.
+                     */
+                    if (step > 0) {
+                        ImGui::SameLine(cw - ImGui::GetFontSize() * 7.0f);
+                        if (ImGui::SmallButton("Start again"))
+                            ImGui::OpenPopup("Start again?");
+                    }
+                    if (ImGui::BeginPopupModal("Start again?", nullptr,
+                                               ImGuiWindowFlags_AlwaysAutoResize)) {
+                        ImGui::TextWrapped("Erase the hard disk and begin the "
+                                           "installation from the start?");
+                        ImGui::Spacing();
+                        TextDimWrapped("Anything installed inside Windows is lost. "
+                                       "Your CD image is kept.");
+                        ImGui::Spacing();
+                        if (ImGui::Button("Erase and start again")) {
+                            retrodos::win98_reset(w, true);
+                            step = 0;
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+                        ImGui::EndPopup();
+                    }
                 }
                 else if (page == Page::Demo) {
                     ImGui::TextUnformatted("Demo");

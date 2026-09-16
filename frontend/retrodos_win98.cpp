@@ -293,6 +293,27 @@ bool win98_is_install_dir(const std::string &dir)
     return file_exists(state_path(dir));
 }
 
+Win98Phase win98_true_phase(const Win98Install &w)
+{
+    /*
+     * The phase the machine is actually in, as opposed to the one recorded.
+     *
+     * They come apart easily and the result is baffling: a saved phase of
+     * Continue with no disk image runs "IMGMOUNT C hdd.img" against a file
+     * that is not there, and the guest drops to a prompt that cannot boot
+     * anything. Nothing in that failure mentions a missing disk.
+     *
+     * So a recorded phase is never trusted to be further along than the files
+     * support -- it can only ever be revised DOWN here. Going forward is a
+     * decision the wizard makes after a step succeeds, because "Setup has
+     * finished" is not observable from out here.
+     */
+    if (w.dir.empty()) return Win98Phase::Create;
+    if (!file_exists(join(w.dir, w.hdd))) return Win98Phase::Create;
+    if (w.phase == Win98Phase::Create)    return Win98Phase::Install;
+    return w.phase;
+}
+
 bool win98_load(const std::string &dir, Win98Install &out)
 {
     out = Win98Install{};
@@ -338,7 +359,24 @@ bool win98_load(const std::string &dir, Win98Install &out)
 
     if (out.hdd.empty()) out.hdd = "hdd.img";
     if (out.memsize < 16 || out.memsize > 512) out.memsize = 128;
+    /* Never hand back a phase the files do not support. */
+    out.phase = win98_true_phase(out);
     return true;
+}
+
+bool win98_reset(Win98Install &w, bool erase_disk)
+{
+    if (w.dir.empty()) return false;
+    if (erase_disk) {
+        const std::string img = join(w.dir, w.hdd);
+        if (file_exists(img)) SDL_RemovePath(img.c_str());
+    }
+    w.phase = Win98Phase::Create;
+    w.fast_core_after_install = false;
+    /* The chosen disc is kept. Starting the installation again almost never
+     * means "and I have a different Windows CD now", and making the user find
+     * it a second time would be a small punishment for a reasonable act. */
+    return win98_save(w);
 }
 
 bool win98_save(const Win98Install &w)

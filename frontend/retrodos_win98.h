@@ -78,6 +78,22 @@ std::string win98_autoexec(const Win98Install &w);
  */
 std::string win98_conf(const Win98Install &w);
 
+/*
+ * The phase the files actually support, which is never further along than
+ * what is on disk. win98_load() applies it, so a caller normally gets this
+ * for free; it is exposed because the wizard also wants to ask mid-session.
+ */
+Win98Phase win98_true_phase(const Win98Install &w);
+
+/*
+ * Back to the beginning. [erase_disk] also removes the hard disk image, which
+ * is what "start the installation again" means -- a half-installed Windows is
+ * not something Setup can be pointed at a second time.
+ *
+ * The chosen CD is kept either way.
+ */
+bool win98_reset(Win98Install &w, bool erase_disk);
+
 /* Phase state, one flat key=value file in the machine's own folder, the same
  * shape as the app's other config files. Missing or unreadable reads as a
  * fresh Create. */
