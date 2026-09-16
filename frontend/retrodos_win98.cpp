@@ -130,7 +130,22 @@ std::string win98_autoexec(const Win98Install &w)
          */
         a += "IMGMOUNT C " + hdd + "\n";
         a += "IMGMOUNT D " + iso + "\n";
-        a += "IMGMOUNT A -bootcd D\n";
+        /*
+         * "-t floppy" is not optional, whatever the guide says.
+         *
+         * The guide gives "IMGMOUNT A -bootcd D". Run against a real Windows
+         * 98 SE disc that is unambiguously El Torito bootable, DOSBox-X finds
+         * the boot record, reports the right entry and loads the boot sector
+         * -- and the guest then prints "This is not a bootable disk", because
+         * the floppy emulation was never set up for it to read the rest of
+         * the image from. IMGMOUNT's own help spells the type out:
+         *
+         *   IMGMOUNT drive [-t floppy] -bootcd cdDrive (or -el-torito cdDrive)
+         *
+         * With the type it reaches the Windows 98 CD-ROM Startup Menu, which
+         * is where the guide says you should be.
+         */
+        a += "IMGMOUNT A -t floppy -bootcd D\n";
         a += "BOOT A:\n";
         break;
 
@@ -202,9 +217,17 @@ std::string win98_conf(const Win98Install &w)
      * has nobody to answer.
      */
     c += "ver=7.1\n";
-    /* For the same reason: leave fat32setversion at its default of "ask" and an
-     * unattended mount can block on a prompt. */
-    c += "fat32setversion=set\n";
+    /*
+     * For the same reason: left at its default of "ask", mounting a FAT32
+     * image stops to ask whether to change the reported DOS version, and an
+     * [autoexec] has nobody to answer.
+     *
+     * "auto", not "set". The valid values are ask/auto/manual -- "set" was a
+     * guess, and DOSBox-X answered it with "It might now be reset to the
+     * default value: ask", which is to say silently back to the prompt this
+     * line exists to avoid.
+     */
+    c += "fat32setversion=auto\n";
     /* The guide removes both rate limits; they exist to slow disk access to
      * period-accurate speeds, which during a multi-hundred-megabyte install is
      * simply a long wait. */
