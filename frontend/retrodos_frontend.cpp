@@ -1686,7 +1686,15 @@ int main(int argc, char **argv)
          * button every frame would look to DOS like the key repeating at 60Hz,
          * which turns a menu selection into a blur. */
         if (view == View::Emulator) {
+            /* Desktop never has the on-screen pad, so its state should not
+             * claim otherwise -- the overlay reads enabled() to decide whether
+             * to offer "Move controls", and offering a layout editor for
+             * something that is not on screen is worse than not offering it. */
+#if defined(__ANDROID__) || defined(__APPLE__)
             pad.set_enabled(active.onscreen_pad);
+#else
+            pad.set_enabled(false);
+#endif
 
             /* Announce the stick BEFORE the game asks.
              *
@@ -3390,11 +3398,19 @@ int main(int argc, char **argv)
             }
 
             /* ---------------- Always-on emulator controls ---------------- */
-            /* A handheld has no Escape key and often no usable Back button, so
-             * without this the menu and the on-screen keyboard are unreachable
-             * once a game is running -- the emulator becomes a one-way trip.
-             * Kept small and translucent, and parked in the top-right where DOS
-             * games put the least. */
+            /*
+             * One button, and only because there has to be one.
+             *
+             * A handheld has no Escape key and often no usable Back button, so
+             * without this the menu is unreachable once a game is running and
+             * the emulator becomes a one-way trip. Everything that used to sit
+             * beside it -- Joy, Keys, Pad, Keyboard -- is in that menu already,
+             * and four chips laid over somebody's Windows desktop is four more
+             * things in the way than the screen can spare.
+             *
+             * Labelled for the key it stands in for, so the button and the
+             * keyboard teach each other.
+             */
             if (view == View::Emulator && !show_overlay && !show_controls) {
                 const float pad = ImGui::GetStyle().WindowPadding.x;
                 ImGui::SetNextWindowPos(ImVec2(origin.x + full.x - pad, origin.y + pad),
@@ -3405,51 +3421,25 @@ int main(int argc, char **argv)
                              ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
                              ImGuiWindowFlags_NoNav | ImGuiWindowFlags_AlwaysAutoResize |
                              ImGuiWindowFlags_NoFocusOnAppearing);
-                if (ImGui::Button("Menu")) show_overlay = true;
-                ImGui::SameLine();
-
-                /* Joystick and keys, one tap each. These are the two switches
-                 * a player actually throws mid-game -- a title's setup screen
-                 * wants the stick dead while it reads the keyboard, then wants
-                 * it back -- and a panel is too much ceremony for that. Lit
-                 * when active, like the nav rail. Saved to the game
-                 * immediately: a toggle that silently reverts on the next
-                 * launch reads as broken, and the joystick one MUST persist to
-                 * matter, because detection happens as the game boots. */
-                {
-                    auto toggle_chip = [&](const char *label, bool &flag) {
-                        const bool on = flag;
-                        if (on) ImGui::PushStyleColor(ImGuiCol_Button,
-                                    ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                        if (ImGui::Button(label)) {
-                            flag = !flag;
-                            if (!playing.empty())
-                                retrodos::save_game_settings(games_dir, playing, active);
-                        }
-                        if (on) ImGui::PopStyleColor();
-                    };
-                    toggle_chip("Joy",  active.pad_sends_joystick);
-                    ImGui::SameLine();
-                    toggle_chip("Keys", active.pad_sends_keys);
-                }
-                ImGui::SameLine();
-
-                /* One tap to the mapping panel. Burying it behind Menu ->
-                 * Controls made the most-adjusted thing in a DOS session --
-                 * which keys the pad sends, whether the stick is live -- two
-                 * presses away and invisible; a player who never opens the
-                 * menu never learns it exists. */
-                if (ImGui::Button("Pad")) { show_controls = true; show_osk = false; }
-                ImGui::SameLine();
-                if (ImGui::Button(show_osk ? "Hide keys" : "Keyboard")) show_osk = !show_osk;
+                if (ImGui::Button("Esc")) show_overlay = true;
                 ImGui::End();
             }
 
-            /* Under the OSK and the overlay: when either is up the player is
-             * not driving the game, and a pad drawn on top of a keyboard is
-             * just clutter. */
+            /*
+             * The on-screen pad is for a machine with no keyboard.
+             *
+             * On a desktop there is a real one, and a translucent D-pad over a
+             * Windows desktop is not a control scheme, it is something in the
+             * way. On a phone it is the only way to play at all, so there it
+             * still follows the player's own setting.
+             *
+             * Also under the keyboard and the menu: when either is up the
+             * player is not driving the game.
+             */
+#if defined(__ANDROID__) || defined(__APPLE__)
             if (view == View::Emulator && !show_osk && !show_overlay && !show_controls)
                 pad.draw(win_w, win_h);
+#endif
 
             if (view == View::Emulator && show_osk)
                 retrodos::osk_draw(full.x, full.y);
