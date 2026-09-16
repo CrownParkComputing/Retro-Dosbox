@@ -274,13 +274,14 @@ std::string media_progress(void)   { return call_string("progress"); }
 
 } /* namespace retrodos */
 
-#else /* !__ANDROID__ */
+#elif !defined(RETRODOS_MEDIA_HTTP)
 
 namespace retrodos {
 
-/* No client off Android yet: the desktop build is a development target, and
- * media_available() being false keeps the pages hidden rather than showing
- * controls that would silently do nothing. */
+/* No client on this platform: retrodos_media_http.cpp supplies one wherever
+ * libcurl is available, and where nothing does, media_available() being false
+ * keeps the pages hidden rather than showing controls that would silently do
+ * nothing. */
 bool media_available(void) { return false; }
 bool media_downloads_available(void) { return false; }
 

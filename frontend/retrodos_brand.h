@@ -52,6 +52,20 @@ ImFont *load_ui_font(float size_px);
  */
 SDL_Texture *wordmark(SDL_Renderer *renderer, int *out_w, int *out_h);
 
+/*
+ * Decode a PNG or JPEG into RGBA8, shrunk to fit within [max_w] x [max_h]
+ * with its aspect kept. False when the bytes are not an image this build
+ * understands.
+ *
+ * It lives here because stb_image can only be instantiated once in a binary,
+ * and this is the file that instantiates it. The RetroMedia client is the
+ * other caller: box art arrives as PNG or JPEG and has to reach the frontend
+ * as pixels.
+ */
+bool decode_image(const unsigned char *data, size_t size,
+                  int max_w, int max_h, int &w, int &h,
+                  std::vector<unsigned char> &rgba);
+
 void brand_shutdown(void);
 
 } /* namespace retrodos */

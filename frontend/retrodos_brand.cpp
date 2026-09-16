@@ -3,13 +3,17 @@
 #include "imgui.h"
 
 #define STB_IMAGE_IMPLEMENTATION
-/* Only PNG, and no stdio. The wordmark is a PNG, the other decoders are code
- * we would ship and never run, and stb's file helpers would bypass SDL's asset
- * routing -- which is the one thing this file exists to get right. */
+/* PNG and JPEG, and no stdio. The wordmark is a PNG; box art from RetroMedia
+ * is whichever of the two the scraper found, and decode_image() below is what
+ * reads it. The rest of stb's decoders are code we would ship and never run,
+ * and its file helpers would bypass SDL's asset routing -- which is the one
+ * thing this file exists to get right. */
 #define STBI_ONLY_PNG
+#define STBI_ONLY_JPEG
 #define STBI_NO_STDIO
 #include "stb_image.h"
 
+#include <climits>
 #include <cstring>
 
 namespace retrodos {
@@ -112,6 +116,51 @@ SDL_Texture *wordmark(SDL_Renderer *renderer, int *out_w, int *out_h)
     if (out_w) *out_w = g_wordmark_w;
     if (out_h) *out_h = g_wordmark_h;
     return g_wordmark;
+}
+
+bool decode_image(const unsigned char *data, size_t size,
+                  int max_w, int max_h, int &w, int &h,
+                  std::vector<unsigned char> &rgba)
+{
+    w = h = 0;
+    rgba.clear();
+    if (!data || size == 0 || size > (size_t)INT_MAX) return false;
+
+    int sw = 0, sh = 0, comp = 0;
+    stbi_uc *src = stbi_load_from_memory(data, (int)size, &sw, &sh, &comp, 4);
+    if (!src) return false;
+
+    /* Shrunk on the way in rather than at draw time. These are cached to disk
+     * as raw RGBA, and a 2000px scan of a box is 16 MB of a file that is only
+     * ever drawn two centimetres wide. */
+    int dw = sw, dh = sh;
+    if (max_w > 0 && max_h > 0 && (sw > max_w || sh > max_h)) {
+        const double s = (max_w / (double)sw < max_h / (double)sh)
+                       ? max_w / (double)sw : max_h / (double)sh;
+        dw = (int)(sw * s); if (dw < 1) dw = 1;
+        dh = (int)(sh * s); if (dh < 1) dh = 1;
+    }
+
+    rgba.resize((size_t)dw * (size_t)dh * 4);
+    if (dw == sw && dh == sh) {
+        std::memcpy(rgba.data(), src, rgba.size());
+    } else {
+        /* Nearest neighbour. Box art is decoration at this size and the
+         * renderer filters it again when it is drawn; a resampler here would
+         * be work nobody could see. */
+        for (int y = 0; y < dh; ++y) {
+            const int sy = (int)((long long)y * sh / dh);
+            for (int x = 0; x < dw; ++x) {
+                const int sx = (int)((long long)x * sw / dw);
+                std::memcpy(&rgba[((size_t)y * dw + x) * 4],
+                            &src[((size_t)sy * sw + sx) * 4], 4);
+            }
+        }
+    }
+    stbi_image_free(src);
+    w = dw;
+    h = dh;
+    return true;
 }
 
 void brand_shutdown(void)
