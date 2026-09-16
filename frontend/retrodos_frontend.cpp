@@ -1444,6 +1444,9 @@ int main(int argc, char **argv)
     /* Set by the Windows list. Acted on after it has finished drawing, because
      * launch() tears down this frame's UI state. */
     bool start_windows = false;
+    /* Something the Library needs to tell the user about the last thing they
+     * pressed -- a game that turned out to have nothing in it, usually. */
+    std::string library_note;
 
     std::thread engine;
     SDL_Texture *fb_tex = nullptr;
@@ -1653,6 +1656,22 @@ int main(int argc, char **argv)
             g.conf_override   = retrodos::win98_conf(lw);
             win_running_dir   = lw.dir;
             win_running_phase = lw.phase;
+        }
+
+        /*
+         * Nothing to run is not a reason to start a machine.
+         *
+         * build_conf mounts the folder and leaves the user at a C:\> prompt,
+         * which is indistinguishable from a broken emulator -- and it is
+         * exactly what an interrupted download produced: a folder in the
+         * library with nothing in it yet. Say so instead.
+         */
+        if (!g.is_machine && g.conf_override.empty() &&
+            g.run.empty() && g.autoexec.empty()) {
+            library_note = g.name + ": nothing here to run. If it was still "
+                           "downloading, it did not finish.";
+            view = View::Shell;
+            return;
         }
 
         Settings s = cfg.defaults;
@@ -2474,6 +2493,14 @@ int main(int argc, char **argv)
                         if (ImGui::Button("Rescan")) refresh();
                     }
 
+                    if (!library_note.empty()) {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.3f, 1.0f));
+                        ImGui::TextWrapped("%s", library_note.c_str());
+                        ImGui::PopStyleColor();
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("x")) library_note.clear();
+                    }
+
                     /* The install runs on its own thread, so the result appears
                      * here rather than being returned by the button. */
                     {
@@ -2674,8 +2701,16 @@ int main(int argc, char **argv)
                                         ImGui::SameLine();
                                     }
 
-                                    if (ImGui::Selectable(games[gi].name.c_str(), false, 0,
-                                                          ImVec2(0, row_h)))
+                                    /* A title with nothing runnable in it is
+                                     * drawn, but not offered: pressing it
+                                     * could only mount an empty folder. */
+                                    const bool startable =
+                                        games[gi].is_machine ||
+                                        !games[gi].run.empty() ||
+                                        !games[gi].autoexec.empty();
+                                    if (ImGui::Selectable(games[gi].name.c_str(), false,
+                                            startable ? 0 : ImGuiSelectableFlags_Disabled,
+                                            ImVec2(0, row_h)))
                                         launch(games[gi]);
                                     ImGui::SameLine(cw * 0.58f);
                                     {

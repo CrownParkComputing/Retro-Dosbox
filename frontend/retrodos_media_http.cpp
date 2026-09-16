@@ -1081,12 +1081,26 @@ MediaResult do_download(const std::string &slug, const std::string &dest_dir)
     title = sanitise(title);
     if (title.empty()) title = slug;
 
-    const std::string out_dir = dest_dir + "/" + title;
+    /*
+     * Downloaded somewhere the library does not look, and moved in when it is
+     * finished.
+     *
+     * Building it in place put a folder in the library the moment the download
+     * started, so a title that was still arriving -- or one whose download died
+     * with the app -- was listed as a game, and starting it mounted an empty
+     * directory and dropped the user at a C:\> prompt. The scanner skips names
+     * beginning with a dot, so a staging folder under one is invisible until
+     * there is something worth seeing.
+     */
+    const std::string stage_root = dest_dir + "/.downloading";
+    const std::string out_dir    = stage_root + "/" + title;
+    const std::string final_dir  = dest_dir + "/" + title;
+    remove_tree(out_dir);              /* anything a previous attempt left */
+    SDL_CreateDirectory(stage_root.c_str());
     SDL_CreateDirectory(out_dir.c_str());
 
-    /* Straight to disk under its final name. The body is the zip the server
-     * builds, and a game is routinely larger than anything this process should
-     * hold in memory. */
+    /* Straight to disk. The body is the zip the server builds, and a game is
+     * routinely larger than anything this process should hold in memory. */
     const std::string tmp = out_dir + "/.download";
     FILE *f = fopen(tmp.c_str(), "wb");
     if (!f) { r.message = "could not write to " + out_dir; return r; }
@@ -1136,8 +1150,19 @@ MediaResult do_download(const std::string &slug, const std::string &dest_dir)
     extract_archives(out_dir, title);
     set_progress(std::string());
 
+    /* Only now does it become a game. Replacing an earlier copy is deliberate
+     * -- re-downloading a title should give you the title, not fail because
+     * you already had it -- and it happens after the new one is complete, so a
+     * failed re-download never costs the copy that worked. */
+    remove_tree(final_dir);
+    if (!SDL_RenamePath(out_dir.c_str(), final_dir.c_str())) {
+        r.message = std::string("could not move it into the library: ") + SDL_GetError();
+        remove_tree(out_dir);
+        return r;
+    }
+
     r.ok = true;
-    r.path = out_dir;
+    r.path = final_dir;
     r.message = title + ": " + std::to_string(written) +
                 (written == 1 ? " file" : " files");
     return r;
