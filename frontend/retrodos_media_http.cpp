@@ -52,7 +52,7 @@ namespace {
 
 const char *const kBase   = "https://media.crownparkcomputing.com";
 const char *const kSystem = "dos";
-const char *const kAgent  = "Retro-DOS/1.0 RetroMedia client";
+const char *const kAgent  = RETRODOS_APP_NAME "/1.0 RetroMedia client";
 
 const size_t kJsonCap = 8u  << 20;
 const size_t kArtCap  = 32u << 20;
@@ -290,7 +290,7 @@ std::string get_email()
 std::string config_dir()
 {
     if (!g_dir.empty()) return g_dir;
-    if (char *pref = SDL_GetPrefPath("CrownParkComputing", "Retro-DOS")) {
+    if (char *pref = SDL_GetPrefPath("CrownParkComputing", RETRODOS_APP_NAME)) {
         g_dir = pref;
         SDL_free(pref);
     }

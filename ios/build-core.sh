@@ -105,6 +105,17 @@ if [ ! -f config.h ]; then
     # --build MUST differ from --host. On an Apple Silicon Mac the build
     # machine IS aarch64-apple-darwin, cross mode never engages, and configure
     # hangs forever on "checking whether we are cross compiling".
+    # ac_cv_* overrides, not a source change: configure AUTO-DETECTS libpcap
+    # and defines C_PCAP when it finds a header and a library, and the iOS SDK
+    # has both -- so ethernet pass-through compiles in with no flag asked for
+    # and nothing in the build saying so. That is exactly the shape of the
+    # rejection Retro-Amiga took under guideline 5.6: review notes that said
+    # "no network features of any kind" over a binary that imported sockets.
+    # Forcing the two cache variables makes the test fail, which is what
+    # --disable-pcap would do if it existed.
+    export ac_cv_header_pcap_h=no
+    export ac_cv_lib_pcap_pcap_open_live=no
+
     ./configure \
         --host=aarch64-apple-darwin --build=x86_64-apple-darwin \
         --enable-sdl3 \
@@ -129,10 +140,23 @@ make -k -j"$JOBS" || true
 # ------------------------------------------------------------ 3. frontend
 echo "==> building the SDL3 + ImGui frontend"
 FE="$BUILD/frontend"; mkdir -p "$FE"
+# The app's name reaches the C++ through these two, and the frontend is
+# compiled into the same library for every app built from this tree -- so they
+# are set HERE as well as on the Xcode target, or the library keeps the default
+# and the running app calls itself Retro-DOS while its icon says otherwise.
+APP_NAME="${APP_NAME:-Autoexec}"
+APP_CORE="${APP_CORE:-DOSBox-X}"
 FE_FLAGS="$IOS_CFLAGS -std=gnu++17 -I$CORE/include -I$APP/frontend/imgui -I$SDL3_PREFIX/include"
 for src in "$APP"/frontend/*.cpp "$APP"/frontend/imgui/*.cpp; do
+    # The two identity defines are written out HERE, quoted at the point of
+    # use, rather than folded into $FE_FLAGS: that variable is deliberately
+    # unquoted so it word-splits, and a value with quotes in it does not
+    # survive that intact.
     # shellcheck disable=SC2086
-    "$CXX" $FE_FLAGS -c -o "$FE/$(basename "${src%.cpp}").o" "$src" \
+    "$CXX" $FE_FLAGS \
+        -DRETRODOS_APP_NAME="\"$APP_NAME\"" \
+        -DRETRODOS_APP_CORE="\"$APP_CORE\"" \
+        -c -o "$FE/$(basename "${src%.cpp}").o" "$src" \
         || { echo "error: frontend compile failed on $src" >&2; exit 1; }
 done
 
@@ -172,6 +196,34 @@ xcrun --sdk "$IOS_PLATFORM" libtool -static -no_warning_for_no_symbols \
     "$FE"/*.o $(tr '\n' ' ' < "$OUT/archives.txt") "$TREE"/src/*.o
 
 cp -f "$SDL3_PREFIX/lib/libSDL3.a" "$OUT/"
+# --------------------------------------------- 5. no networking, checked
+#
+# Apple rejected Retro-Amiga under guideline 5.6 -- "features that appear to
+# have been intentionally hidden during review" -- because the review notes
+# said the app had no networking and the shipped binary imported the BSD
+# socket API anyway. Nobody put it there on purpose; a core option was on by
+# default and nothing in the build said so.
+#
+# The same thing is true here and was measured, not guessed: the desktop build
+# of this very core links libpcap and carries 64 NE2000 symbols, entirely from
+# autodetection, with no flag asking for it. Hence the ac_cv_* overrides
+# above -- and hence this, because a configure flag is a claim and a symbol
+# table is the fact.
+#
+# DOSBox-X's networking is IPX over UDP, the NE2000 card over libpcap or
+# libslirp, and a "null modem" serial port over TCP. All of it is off above.
+echo "==> checking the library imports nothing that can reach a network"
+BAD=$(nm -u "$OUT/libretrodos.a" 2>/dev/null \
+      | grep -oE '_(socket|connect|bind|listen|accept|getaddrinfo|gethostbyname|sendto|recvfrom|pcap_[a-z_]+)$' \
+      | sort -u || true)
+if [ -n "$BAD" ]; then
+    echo "error: this build can reach the network, and an App Store build must not:" >&2
+    echo "$BAD" | sed 's/^/    /' >&2
+    echo "  (see the comment above -- most likely C_PCAP came back)" >&2
+    exit 1
+fi
+echo "    clean: no socket or pcap imports"
+
 echo "==> done:"
 ls -lh "$OUT/libretrodos.a" "$OUT/libSDL3.a"
 echo "    link the app against BOTH, with -all_load on libretrodos.a."

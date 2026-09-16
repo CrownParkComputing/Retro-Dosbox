@@ -437,13 +437,13 @@ std::vector<std::string> candidate_roots()
     if (const char *docs = SDL_GetUserFolder(SDL_FOLDER_DOCUMENTS))
         out.push_back(std::string(docs) + "dos");
     if (out.empty()) {
-        if (char *pref = SDL_GetPrefPath("CrownParkComputing", "Retro-DOS")) {
+        if (char *pref = SDL_GetPrefPath("CrownParkComputing", RETRODOS_APP_NAME)) {
             out.push_back(std::string(pref) + "dos");
             SDL_free(pref);
         }
     }
 #else
-    if (char *pref = SDL_GetPrefPath("CrownParkComputing", "Retro-DOS")) {
+    if (char *pref = SDL_GetPrefPath("CrownParkComputing", RETRODOS_APP_NAME)) {
         out.push_back(std::string(pref) + "dos");
         SDL_free(pref);
     }
@@ -775,7 +775,7 @@ std::string root_label(const std::string &root)
 {
 #if defined(__APPLE__)
     const std::string tail = root.substr(root.find_last_of('/') + 1);
-    return "Retro-DOS  >  " + (tail.empty() ? std::string("dos") : tail)
+    return RETRODOS_APP_NAME "  >  " + (tail.empty() ? std::string("dos") : tail)
          + "   (in the Files app)";
 #else
     /* Android: defer to library_label, which decodes a granted SAF tree into
@@ -1256,7 +1256,7 @@ int main(int argc, char **argv)
 
     SDL_Window   *win = nullptr;
     SDL_Renderer *ren = nullptr;
-    if (!SDL_CreateWindowAndRenderer("Retro-DOS", 1280, 720,
+    if (!SDL_CreateWindowAndRenderer(RETRODOS_APP_NAME, 1280, 720,
                                      SDL_WINDOW_FULLSCREEN | SDL_WINDOW_RESIZABLE,
                                      &win, &ren)) {
         LOGI("window/renderer failed: %s", SDL_GetError());
@@ -1341,7 +1341,7 @@ int main(int argc, char **argv)
 #if defined(__ANDROID__)
     if (const char *in = SDL_GetAndroidInternalStoragePath()) cfg_dir = in;
 #else
-    if (char *pref = SDL_GetPrefPath("CrownParkComputing", "Retro-DOS")) {
+    if (char *pref = SDL_GetPrefPath("CrownParkComputing", RETRODOS_APP_NAME)) {
         cfg_dir = pref; SDL_free(pref);
     }
 #endif
@@ -2290,7 +2290,7 @@ int main(int argc, char **argv)
                              ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                              ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
 
-                ImGui::TextUnformatted("Retro-DOS - first run");
+                ImGui::TextUnformatted(RETRODOS_APP_NAME " - first run");
                 ImGui::Separator();
                 ImGui::Spacing();
                 ImGui::TextWrapped("Choose where your DOS games live. Each game should "
@@ -2402,7 +2402,22 @@ int main(int argc, char **argv)
                                              (avail - w) * 0.5f);
                         ImGui::Image((ImTextureID)(intptr_t)mark, ImVec2(w, h));
                     } else {
-                        ImGui::TextUnformatted("RETRO-DOS");
+                        ImGui::TextUnformatted(RETRODOS_APP_NAME);
+                    }
+                    /* The core, under the name, on the screen you see first.
+                     *
+                     * Whatever this app is called, the emulator inside it is
+                     * somebody else's work under the GPL. Burying that in an
+                     * About page reachable in three taps is the letter of the
+                     * licence at best; saying it here is the point of it. */
+                    {
+                        const char *credit = "powered by " RETRODOS_APP_CORE;
+                        const float avail = ImGui::GetContentRegionAvail().x;
+                        const float tw = ImGui::CalcTextSize(credit).x;
+                        if (tw < avail)
+                            ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
+                                                 (avail - tw) * 0.5f);
+                        ImGui::TextDisabled("%s", credit);
                     }
                 }
                 ImGui::Separator();

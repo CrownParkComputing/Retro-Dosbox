@@ -9,6 +9,7 @@
  * copy below is written against SDL's I/O rather than fopen.
  */
 #include "retrodos_demo.h"
+#include "retrodos_brand.h"
 
 #include <SDL3/SDL.h>
 
@@ -125,7 +126,7 @@ std::string demo_command(DemoKind kind, bool &run_raw)
 std::string demo_title(DemoKind kind)
 {
     return kind == DemoKind::FreeDos ? "FreeDOS 1.3 (DOS prompt)"
-                                     : "Retro-DOS demo";
+                                     : RETRODOS_APP_NAME " demo";
 }
 
 } /* namespace retrodos */

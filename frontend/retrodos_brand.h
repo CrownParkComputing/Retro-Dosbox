@@ -16,6 +16,30 @@
 #ifndef RETRODOS_BRAND_H
 #define RETRODOS_BRAND_H
 
+/*
+ * What this app is called, and what it is built on.
+ *
+ * Android and the desktop ship as Retro-DOS. iOS ships as a separate app with
+ * its own name, because Apple rejected the Retro-* family under guideline 4.3
+ * for being too alike -- so the iOS build is not a rename of this one, it is
+ * its own thing, and it says so.
+ *
+ * One define rather than a dozen string literals: a second identity that only
+ * half-applies is worse than none, and a window title that still says
+ * Retro-DOS is exactly the kind of detail App Review reads as the same app
+ * submitted twice.
+ *
+ * RETRODOS_APP_CORE is not decoration. Whatever the app is called, the
+ * emulator inside it is DOSBox-X and the credit for it is not optional --
+ * legally, because of the GPL, and plainly, because it is theirs.
+ */
+#ifndef RETRODOS_APP_NAME
+#  define RETRODOS_APP_NAME "Retro-DOS"
+#endif
+#ifndef RETRODOS_APP_CORE
+#  define RETRODOS_APP_CORE "DOSBox-X"
+#endif
+
 #include <SDL3/SDL.h>
 
 #include <string>
