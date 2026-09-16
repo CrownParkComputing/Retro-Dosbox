@@ -1238,6 +1238,12 @@ int main(int argc, char **argv)
     int   selected = -1;          /* game index for per-game settings */
     Settings active = cfg.defaults;
     bool  show_overlay = false, show_osk = false;
+    /* What the Windows wizard was telling the user to do when it launched.
+     *
+     * The instructions live on the wizard page, which is exactly where you
+     * cannot see them once the emulator is full-screen -- so the pause panel
+     * carries a copy. Empty for anything that is not a Windows install. */
+    std::string win_hint;
     bool  show_controls = false;   /* in-game mapping panel */
     std::string playing;           /* title of the running game */
     bool  running = true;
@@ -1252,6 +1258,9 @@ int main(int argc, char **argv)
 
     auto launch = [&](const Game &in) {
         Game g = in;
+        /* Only a Windows install carries a hint; anything else clears it, so a
+         * stale crib cannot follow a game into its pause menu. */
+        if (g.conf_override.empty()) win_hint.clear();
 
         if (engine_has_run) {
             cfg.pending_launch = g.name;
@@ -2502,17 +2511,44 @@ int main(int argc, char **argv)
                         ImGui::TextWrapped("Now Setup itself. This starts the machine "
                                            "from the CD.");
                         ImGui::Spacing();
-                        ImGui::TextWrapped("What you will see:");
-                        ImGui::Bullet();
-                        ImGui::TextWrapped("A menu headed 'Microsoft Windows 98 CD-ROM "
-                                           "Startup Menu'. Choose 'Boot from CD-ROM'.");
-                        ImGui::Bullet();
-                        ImGui::TextWrapped("Setup formats the disk and copies files. It "
-                                           "restarts the machine part way through.");
-                        ImGui::Bullet();
-                        ImGui::TextWrapped("When it restarts you land back at a DOS "
-                                           "prompt. That is expected -- come back here "
-                                           "and press Next.");
+                        ImGui::TextWrapped("There are TWO menus before Setup starts. "
+                                           "Both are inside the emulator, so use the "
+                                           "on-screen keyboard or a real one.");
+                        ImGui::Spacing();
+
+                        ImGui::TextWrapped("First menu -- 'Microsoft Windows 98 CD-ROM "
+                                           "Startup Menu':");
+                        ImGui::Indent();
+                        ImGui::TextWrapped("Choose 2, 'Boot from CD-ROM'.");
+                        TextDimWrapped("Option 1 boots the empty hard disk and does "
+                                       "nothing.");
+                        ImGui::Unindent();
+                        ImGui::Spacing();
+
+                        ImGui::TextWrapped("Second menu -- three lines starting 'Start "
+                                           "Windows 98 Setup from CD-ROM':");
+                        ImGui::Indent();
+                        ImGui::TextWrapped("Choose 1, or just wait: it is the default "
+                                           "and starts on its own after 30 seconds.");
+                        ImGui::Unindent();
+                        ImGui::Spacing();
+
+                        ImGui::TextWrapped("Setup then copies files and restarts the "
+                                           "machine. Landing back at a DOS prompt is "
+                                           "expected -- come back here and press Next.");
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+                        ImGui::TextWrapped("If you end up at a prompt instead of Setup:");
+                        ImGui::Indent();
+                        /* Taken from this disc's own AUTOEXEC.BAT, which runs
+                         * MSCDEX with /L:D -- so the CD really is D:, not a
+                         * letter that has to be hunted for. */
+                        ImGui::TextUnformatted("D:");
+                        ImGui::TextUnformatted("cd \\WIN98");
+                        ImGui::TextUnformatted("setup");
+                        ImGui::Unindent();
+                        TextDimWrapped("The boot disc always puts the CD on D:.");
                         ImGui::Spacing();
 
                         const std::string blocked = retrodos::win98_blocker(w);
@@ -2524,6 +2560,10 @@ int main(int argc, char **argv)
                         }
                         ImGui::BeginDisabled(!blocked.empty());
                         if (ImGui::Button("Start Setup", ImVec2(cw * 0.5f, 0))) {
+                            win_hint =
+                                "1st menu: choose 2, Boot from CD-ROM.\n"
+                                "2nd menu: choose 1, or wait 30s.\n"
+                                "At a prompt instead?  D:  then  cd \\WIN98  then  setup";
                             w.phase = retrodos::Win98Phase::Install;
                             retrodos::win98_save(w);
                             Game g;
@@ -2558,6 +2598,9 @@ int main(int argc, char **argv)
                         }
                         ImGui::BeginDisabled(!blocked4.empty());
                         if (ImGui::Button("Continue Setup", ImVec2(cw * 0.5f, 0))) {
+                            win_hint = "Let Setup finish. It restarts the machine "
+                                       "several times; each time you land back in "
+                                       "Retro-DOS, press Continue Setup again.";
                             w.phase = retrodos::Win98Phase::Continue;
                             retrodos::win98_save(w);
                             Game g;
@@ -2736,6 +2779,12 @@ int main(int argc, char **argv)
                 retrodos_host_running_program(prog, sizeof(prog));
                 ImGui::Text("Running: %s", prog[0] ? prog : "DOS");
                 ImGui::Separator();
+                if (!win_hint.empty()) {
+                    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 26.0f);
+                    ImGui::TextWrapped("%s", win_hint.c_str());
+                    ImGui::PopTextWrapPos();
+                    ImGui::Separator();
+                }
                 const ImVec2 bw(ImGui::GetFontSize() * 11.0f, 0);
                 if (ImGui::Button("Resume", bw)) show_overlay = false;
                 /* One panel at a time. The keyboard and the controls panel
