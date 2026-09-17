@@ -85,8 +85,10 @@ android {
         // Play refuses updates to an app targeting more than a year behind the
         // latest release. The app this replaces already targets 36.
         targetSdk = 36
-        versionCode = DOSBOX_VERSION_CODE_BASE + 1
-        versionName = "1.0"
+        // 202. The live listing carries 201 on production, alpha and Testers
+        // Community, and Play never accepts a code at or below what is there.
+        versionCode = DOSBOX_VERSION_CODE_BASE + 2
+        versionName = "2.0"
         ndk {
             // Only the ABI the core has actually been built for. Listing more
             // ships an APK that installs and then fails to load a library,
