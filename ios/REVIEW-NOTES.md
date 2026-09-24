@@ -69,7 +69,7 @@ anywhere; there is nowhere for it to go.
 1. Open the app. It starts on the DOS Library, which is empty on a fresh
    install.
 2. Tap **Demo** to run the bundled demonstration program, or **Demo → FreeDOS**
-   for a DOS prompt. Neither needs any file from the reviewer.
+   for FreeDOS, then answer N to its installer for a DOS prompt. Neither needs any file from the reviewer.
 3. To run your own software, copy a folder of DOS files into the app's folder
    in the Files app; it appears in the DOS Library.
 
@@ -78,7 +78,9 @@ reviewer with no DOS software can see the app work in two taps.
 
 ## Copyright
 
-No copyrighted software is bundled, downloaded or linked to. The app does not
-supply DOS, Windows, or any game. The Windows Setup walkthrough explains how to
-install Windows 98 from an installation CD the user already owns; it supplies
-no disc and cannot obtain one.
+No proprietary software is bundled, downloaded or linked to. The app does not
+supply MS-DOS, Windows, or any game. The Windows Setup walkthrough explains how
+to install Windows 98 from an installation CD the user already owns; it supplies
+no disc and cannot obtain one. The FreeDOS Setup walkthrough does the same for
+FreeDOS 1.3 (GNU GPL) from a CD image the user places in the games folder. It
+contains no links and downloads nothing.

@@ -26,6 +26,20 @@ bool saf_has_grant(void);
 
 std::string saf_tree_uri(void);
 
+/*
+ * The ONE parent folder (games/, discs/, machines/ live under it).
+ *
+ * Distinct from the collection grant above, which is read-only and only ever
+ * enumerated. This one has to be a real, writable path, because the emulator
+ * writes disk images into it and mounts folders out of it. saf_root_path()
+ * is "" until a folder is granted AND proven usable, so the wizard can say
+ * which of those is missing.
+ */
+void        saf_pick_root(void);
+std::string saf_root_path(void);
+std::string saf_root_label(void);
+void        saf_clear_root(void);
+
 /* Sub-folder names of the granted tree: one per game. */
 std::vector<std::string> saf_list_games(void);
 

@@ -10,7 +10,10 @@
  * nothing else is found:
  *
  *   DEMO      -- a small VGA demonstration written for this project
- *   FREEDOS   -- a real DOS prompt, booted from a FreeDOS 1.3 floppy image
+ *   FREEDOS   -- FreeDOS 1.3, booted from its boot floppy image. The floppy
+ *                runs the FreeDOS installer on boot; answering N to its first
+ *                question leaves a real DOS prompt. Installing is not possible
+ *                from this image alone: the package floppies are not bundled.
  *
  * Both are extracted out of the package to a real filesystem path on first use,
  * because DOSBox-X mounts a directory BY PATH and cannot read out of an APK or
@@ -46,6 +49,10 @@ std::string demo_command(DemoKind kind, bool &run_raw);
 
 /** Display name for the launcher list. */
 std::string demo_title(DemoKind kind);
+
+/** True when the item starts by waiting for the keyboard, so the frontend
+ *  should open its on-screen keyboard as the machine comes up. */
+bool demo_wants_keyboard(DemoKind kind);
 
 } /* namespace retrodos */
 

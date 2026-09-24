@@ -124,6 +124,30 @@ struct Settings {
      * is what the user asked for. */
     bool        onscreen_pad        = true;
 
+    /* Which on-screen controller profile is drawn: a touchpad profile id
+     * ("dos", "generic", "xbox360", "saturn"). Its arrangement -- where the
+     * player dragged and sized the controls -- lives in a per-profile JSON
+     * file beside the config, not here. */
+    std::string touch_pad           = "dos";
+
+    /*
+     * Pointer speed, as a percentage.
+     *
+     * 100 means the pointer travels the distance the finger or the mouse
+     * travelled, measured on the screen you are looking at -- which is the
+     * only definition that means the same thing on a 320x200 game filling a
+     * handheld and on an 800x600 Windows desktop in a window.
+     *
+     * It is a setting because the right answer is not knowable from here: a
+     * guest applies its own pointer speed and acceleration on top, and neither
+     * can be read back. Per game for the same reason everything else is --
+     * Windows and a DOS point-and-click want different things.
+     *
+     * Not a DOSBox-X key: this is the frontend's own arithmetic, like
+     * aspect_mode and the pad bindings.
+     */
+    int         mouse_speed         = 100;   /* 25..400 */
+
     bool operator==(const Settings &o) const {
         for (int i = 0; i < 16; ++i)
             if (pad_keys[i] != o.pad_keys[i]) return false;
@@ -135,6 +159,8 @@ struct Settings {
                pad_sends_keys == o.pad_sends_keys &&
                pad_sends_joystick == o.pad_sends_joystick &&
                onscreen_pad == o.onscreen_pad &&
+               touch_pad == o.touch_pad &&
+               mouse_speed == o.mouse_speed &&
                machine == o.machine && cputype == o.cputype &&
                fpu == o.fpu && vmemsize == o.vmemsize &&
                dos_ver == o.dos_ver && ems == o.ems && umb == o.umb &&
@@ -152,6 +178,19 @@ void descent_pad_keys(int *keys);
 
 /* App-level state that is not per-game. */
 struct AppConfig {
+    /*
+     * ONE folder for everything, chosen once in the setup wizard.
+     *
+     * Inside it the app keeps games/, discs/ and machines/, so a phone's
+     * storage does not end up with ISOs, game folders and 8 GB disk images
+     * loose in one directory -- and so a single Android document-tree grant
+     * covers the lot. library_root, iso_root and machines_root are derived
+     * from it by apply_storage_root(); a config written before it existed has
+     * it empty and keeps whatever those three said, which is how an existing
+     * library goes on working until the wizard is run again.
+     */
+    std::string storage_root;
+
     std::string library_root;      /* where games live                    */
 
     /* Where disc images live. Empty means "the same place as the games",
@@ -161,6 +200,14 @@ struct AppConfig {
      * executables, and a collection of them wants a folder of its own -- very
      * often a different drive. */
     std::string iso_root;
+
+    /* Where the Windows 98 and FreeDOS machines live. Empty means "in the
+     * games folder", which is where they were before storage_root existed. */
+    std::string machines_root;
+
+    /* DOS applications, kept apart from the games so the library can show
+     * them under their own tab. Empty means there is no such folder. */
+    std::string apps_root;
 
     bool        wizard_done = false;
     Settings    defaults;
@@ -182,6 +229,23 @@ struct AppConfig {
 bool load_app_config(const std::string &path, AppConfig &out);
 bool save_app_config(const std::string &path, const AppConfig &cfg);
 
+/** Derive library_root, iso_root and machines_root from storage_root as
+ *  <root>/games, <root>/discs and <root>/machines. No-op when storage_root is
+ *  empty. Does not create the folders. */
+void apply_storage_root(AppConfig &cfg);
+
+/** The machines folder: machines_root, or the games folder when unset. */
+std::string machines_dir(const AppConfig &cfg);
+
+/*
+ * Where disc images for one kind of machine live: "dos", "windows" or
+ * "freedos" under the discs folder, so a Windows game's CD is not offered to
+ * a DOS game and the FreeDOS installer is not listed as a Windows disc.
+ * A config from before the parent folder existed keeps one flat discs
+ * folder (or the games folder) for everything.
+ */
+std::string discs_dir(const AppConfig &cfg, const char *kind);
+
 /* Per-game overrides live beside the app config, one file per title. */
 bool load_game_settings(const std::string &dir, const std::string &game, Settings &out);
 bool save_game_settings(const std::string &dir, const std::string &game, const Settings &s);
@@ -196,10 +260,23 @@ bool save_game_settings(const std::string &dir, const std::string &game, const S
  * [autoexec]. It carries the sound configuration a game ships with, which is
  * what that title was actually packaged against; a later key wins, so those
  * values override our defaults for that game only. */
+/* An image in a drive: what the Launch page shows as "in A:" and what the
+ * [autoexec] mounts before the title starts. */
+struct DriveImage {
+    enum Kind { Floppy, Cd, Hdd };
+    char        letter = 0;     /* 'A'..'E' */
+    std::string path;           /* host path of the image */
+    Kind        kind = Cd;
+};
+
+/* drives: images to IMGMOUNT before the title starts. mount_dir may be empty,
+ * meaning nothing is mounted as C: from a folder -- used to boot a hard disk
+ * image that is in C: instead, with run_cmd "BOOT C:". */
 std::string build_conf(const Settings &s, const std::string &title,
                        const std::string &mount_dir, const std::string &run_cmd,
                        bool run_raw = false,
-                       const std::string &extra_sections = std::string());
+                       const std::string &extra_sections = std::string(),
+                       const std::vector<DriveImage> &drives = std::vector<DriveImage>());
 
 } /* namespace retrodos */
 

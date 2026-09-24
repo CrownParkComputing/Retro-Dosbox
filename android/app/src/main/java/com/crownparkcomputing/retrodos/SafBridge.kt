@@ -34,6 +34,7 @@ object SafBridge {
     private const val TAG   = "retrodos"
     private const val PREFS = "retrodos_saf"
     private const val KEY   = "tree_uri"
+    private const val ROOT  = "root_uri"
 
     /** Set by MainActivity so the bridge can reach a Context and the picker. */
     @Volatile @JvmStatic var activity: MainActivity? = null
@@ -86,6 +87,118 @@ object SafBridge {
             .edit().putString(KEY, uri.toString()).apply()
         Log.i(TAG, "SAF folder granted: $uri")
     }
+
+    /* ---------------------------------------------------------------- */
+    /* The one parent folder                                             */
+    /* ---------------------------------------------------------------- */
+
+    /*
+     * Different from the collection grant above. That one is read-only and
+     * ENUMERATED, with each game copied in as it is played. This one is the
+     * folder the app keeps everything in -- games/, discs/, machines/ -- so
+     * it has to be a real, writable path: the emulator writes an 8 GB disk
+     * image into machines/ and mounts a game folder out of games/ by path.
+     *
+     * A document-tree grant on external storage resolves to such a path
+     * (/storage/emulated/0/<relative>, or /storage/<volume>/<relative>) and
+     * the app can use it directly for anything it creates there itself.
+     * Whether it can also read files the user dropped in from a PC depends
+     * on the Android version and the folder, which is why rootPath() proves
+     * the folder usable rather than assuming it, and the frontend falls back
+     * to app storage when it is not.
+     */
+
+    /** Launch the folder picker for the parent folder, asking for write. */
+    @JvmStatic
+    fun pickRoot() {
+        val a = activity ?: return
+        a.runOnUiThread { a.launchRootPicker() }
+    }
+
+    /** Called by MainActivity when the user picks the parent folder. */
+    @JvmStatic
+    fun onRootPicked(uri: Uri) {
+        val c = ctx() ?: return
+        try {
+            c.contentResolver.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                     Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "could not persist root grant: $e")
+        }
+        c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(ROOT, uri.toString()).apply()
+        Log.i(TAG, "storage root granted: $uri")
+    }
+
+    /** Forget the parent folder, for "run setup again". The grant itself is
+     *  left in place: releasing it and re-taking it gains nothing. */
+    @JvmStatic
+    fun clearRoot() {
+        ctx()?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            ?.edit()?.remove(ROOT)?.apply()
+    }
+
+    /** A readable label for the granted root, or "" when none. */
+    @JvmStatic
+    fun rootLabel(): String {
+        val saved = savedRoot() ?: return ""
+        return try {
+            val id = DocumentsContract.getTreeDocumentId(Uri.parse(saved))
+            val colon = id.indexOf(':')
+            if (colon < 0) id
+            else {
+                val vol = id.substring(0, colon)
+                val rel = id.substring(colon + 1)
+                (if (vol == "primary") "Internal storage" else "SD card $vol") +
+                    (if (rel.isEmpty()) "" else " > " + rel.replace('/', '>'))
+            }
+        } catch (e: Exception) { "" }
+    }
+
+    /**
+     * The real path of the granted parent folder, or "" when there is no
+     * grant, it is no longer held, it does not map onto a path, or the app
+     * cannot actually create a file there. That last check is the one that
+     * matters: a path that exists but refuses writes would surface much later
+     * as a disk image that could not be made.
+     */
+    @JvmStatic
+    fun rootPath(): String {
+        val c = ctx() ?: return ""
+        val saved = savedRoot() ?: return ""
+        val uri = Uri.parse(saved)
+        val held = c.contentResolver.persistedUriPermissions.any {
+            it.uri == uri && it.isReadPermission && it.isWritePermission
+        }
+        if (!held) return ""
+        return try {
+            val id = DocumentsContract.getTreeDocumentId(uri)
+            val colon = id.indexOf(':')
+            if (colon < 0) return ""
+            val volume = id.substring(0, colon)
+            val relative = id.substring(colon + 1)
+            if (relative.contains("..") || relative.indexOf('\u0000') >= 0) return ""
+            val volumeRoot = if (volume == "primary") File("/storage/emulated/0")
+                             else File("/storage", volume)
+            val folder = if (relative.isEmpty()) volumeRoot else File(volumeRoot, relative)
+            val rootPath = volumeRoot.canonicalPath
+            val folderPath = folder.canonicalPath
+            if (folderPath != rootPath && !folderPath.startsWith(rootPath + File.separator))
+                return ""
+            if (!folder.isDirectory || !folder.canRead()) return ""
+            /* Prove it, do not infer it. */
+            val probe = File(folder, ".retrodos-write-test")
+            val ok = try { probe.writeText("ok"); probe.exists() } catch (e: Exception) { false }
+            probe.delete()
+            if (ok) folder.absolutePath else ""
+        } catch (e: Exception) {
+            Log.w(TAG, "rootPath failed: $e"); ""
+        }
+    }
+
+    private fun savedRoot(): String? =
+        ctx()?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)?.getString(ROOT, null)
 
     /* ---------------------------------------------------------------- */
     /* Enumerate                                                         */

@@ -23,6 +23,36 @@ upstream still attached, which is what keeps its changes mergeable; vendoring
 the tree into this repository would end that and duplicate several gigabytes of
 sources for nothing.
 
+## Where things live
+
+The setup wizard asks for **one folder** and keeps everything under it:
+
+    <folder>/games/           one sub-folder or .zip per DOS game
+    <folder>/apps/            DOS applications, the same way
+    <folder>/discs/dos/       CDs and floppies for DOS games and applications
+    <folder>/discs/windows/   the Windows install CD and Windows game CDs
+    <folder>/discs/freedos/   the FreeDOS CD
+    <folder>/machines/        Windows 98/ and FreeDOS/, each with its hard disk image
+
+The rail is Launch, Library, Media, Windows, FreeDOS. Library lists games and
+applications together with an A-Z / 0-9 strip and a search modal; tapping a
+title loads it onto Launch. Launch draws the PC, lists its spec (video, CPU,
+memory, sound) and its drives, and has the one button that starts it, as
+Retro-Saturn's does. Drives are added, not fixed: a floppy drive, CD-ROM
+drive or hard disk gets the letter a PC would give it, and Media -- three
+tabs, CDs, Floppies and Hard disks, each with initials and search -- puts an
+image in it. A hard disk in C: with no title loaded boots that disk. Windows
+and FreeDOS show their machine when it exists and its setup walkthrough until
+then.
+
+On Android that folder is either one the user picks with the system folder
+picker -- granted read/write and persisted, resolved to a real path because
+DOSBox-X mounts paths, not `content://` URIs -- or the app's own storage on
+any volume, which needs no permission. A picked folder that Android will not
+let the app write to directly is reported in the wizard rather than failing
+later. "Run setup again" on the Library page goes back through the wizard;
+nothing is moved when the folder changes.
+
 ## Building
 
     git clone --recurse-submodules https://github.com/CrownParkComputing/Retro-Dosbox.git
@@ -38,6 +68,19 @@ the previous library.
 
 If the submodule has not been initialised the script stops and says so, rather
 than failing later inside the compiler.
+
+### Linux desktop
+
+    ./tool/build-linux.sh                # -> ~/.cache/retro-dosbox-linux/retrodos
+
+The same frontend and core as the phone, linked into one native executable
+with the system SDL3. Nothing is installed: run the binary where it was built,
+since it reads `assets/` and `demo/` from beside itself. With libcurl and
+minizip present the RetroMedia client is compiled in; without them the pages
+are simply hidden. The games folder is chosen on first run, the same as on a
+handheld, and the Windows and FreeDOS setup walkthroughs work identically --
+which makes this the quickest place to try a change to either before a device
+build.
 
 ### iOS
 

@@ -983,11 +983,41 @@ int unzip_into(const std::string &zip_path, const std::string &dir,
                                         nullptr, 0, nullptr, 0) != UNZ_OK)
                 break;
 
-            const std::string leaf = sanitise(base_of(name));
-            if (leaf.empty()) continue;            /* a directory entry */
+            /*
+             * Keep the archive's folders. Reducing every entry to its last
+             * component (which this used to do) flattens the zip -- and a
+             * game whose dosbox.conf mounts a subfolder ("cd \\game", "imgmount
+             * d .\\cd\\disc.cue") then finds nothing there and cannot start.
+             * Each path component is sanitised and "." / ".." are dropped, so
+             * a crafted entry still cannot escape [dir]; the nesting is what
+             * is preserved, not arbitrary paths.
+             */
+            std::string rel;
+            {
+                std::string comp;
+                std::string raw = name;
+                for (char &ch : raw) if (ch == '\\') ch = '/';
+                size_t i = 0;
+                while (i <= raw.size()) {
+                    if (i == raw.size() || raw[i] == '/') {
+                        const std::string c = sanitise(comp);
+                        if (!c.empty() && c != "." && c != "..") {
+                            if (!rel.empty()) rel += "/";
+                            rel += c;
+                        }
+                        comp.clear();
+                    } else comp.push_back(raw[i]);
+                    ++i;
+                }
+            }
+            if (rel.empty()) continue;             /* a directory entry */
             if (unzOpenCurrentFile(z) != UNZ_OK) continue;
 
-            const std::string out_path = dir + "/" + leaf;
+            const std::string out_path = dir + "/" + rel;
+            /* Make the parent folders the entry names. */
+            for (size_t p2 = out_path.find('/', dir.size() + 1);
+                 p2 != std::string::npos; p2 = out_path.find('/', p2 + 1))
+                mkdir(out_path.substr(0, p2).c_str(), 0755);
             FILE *out = fopen(out_path.c_str(), "wb");
             if (out) {
                 for (;;) {
@@ -997,7 +1027,7 @@ int unzip_into(const std::string &zip_path, const std::string &dir,
                 }
                 fclose(out);
                 ++written;
-                set_progress(title + "  unpacking " + leaf);
+                set_progress(title + "  unpacking " + base_of(rel));
             }
             unzCloseCurrentFile(z);
         } while (unzGoToNextFile(z) == UNZ_OK);

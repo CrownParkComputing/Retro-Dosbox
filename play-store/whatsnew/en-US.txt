@@ -1,0 +1,7 @@
+- Guided Launch: play a game from a disc, boot Windows or FreeDOS, or a DOS prompt.
+- One folder for everything: games, discs and machines, set up on first run.
+- Customizable on-screen controls: drag, resize and add buttons.
+- Install FreeDOS or Windows 98 with a step-by-step wizard; 3dfx Voodoo for 3D.
+- Media screen: CDs, floppies and hard disks; make or delete disks.
+- Each game keeps its own dosbox.conf and folders.
+- Fixes to on-screen mouse, disk boot, and a slimmer menu.

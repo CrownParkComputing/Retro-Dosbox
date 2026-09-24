@@ -77,6 +77,8 @@ void append_settings(std::string &s, const Settings &v)
     s += "pad_sends_keys=";     s += v.pad_sends_keys ? "1" : "0";     s += "\n";
     s += "pad_sends_joystick="; s += v.pad_sends_joystick ? "1" : "0"; s += "\n";
     s += "onscreen_pad=";       s += v.onscreen_pad ? "1" : "0";       s += "\n";
+    s += "touch_pad=";          s += v.touch_pad;                      s += "\n";
+    s += "mouse_speed=";        s += std::to_string(v.mouse_speed);    s += "\n";
     s += "machine=";    s += v.machine;                   s += "\n";
     s += "cputype=";    s += v.cputype;                   s += "\n";
     s += "fpu=";        s += v.fpu ? "1" : "0";           s += "\n";
@@ -111,6 +113,12 @@ void read_settings(const std::map<std::string, std::string> &kv, Settings &v)
     v.pad_sends_keys     = as_bool(kv, "pad_sends_keys", v.pad_sends_keys);
     v.pad_sends_joystick = as_bool(kv, "pad_sends_joystick", v.pad_sends_joystick);
     v.onscreen_pad       = as_bool(kv, "onscreen_pad", v.onscreen_pad);
+    v.touch_pad          = as_str (kv, "touch_pad", v.touch_pad);
+    v.mouse_speed        = as_int (kv, "mouse_speed", v.mouse_speed);
+    /* Clamped rather than trusted: a hand-edited zero is a pointer that cannot
+     * move, which reads as a broken mouse rather than as a bad setting. */
+    if (v.mouse_speed < 25)  v.mouse_speed = 25;
+    if (v.mouse_speed > 400) v.mouse_speed = 400;
     /* Each falls back to the value already in [v], which is the struct's own
      * default, so a config written before these keys existed reads as
      * DOSBox-X's defaults rather than as empty strings and zeroes. */
@@ -211,8 +219,14 @@ bool load_app_config(const std::string &path, AppConfig &out)
     const std::string text = read_file(path);
     if (text.empty()) return false;
     const auto kv = parse_kv(text);
-    out.library_root = as_str(kv, "library_root", out.library_root);
-    out.iso_root     = as_str(kv, "iso_root", out.iso_root);
+    out.storage_root  = as_str(kv, "storage_root", out.storage_root);
+    out.library_root  = as_str(kv, "library_root", out.library_root);
+    out.iso_root      = as_str(kv, "iso_root", out.iso_root);
+    out.machines_root = as_str(kv, "machines_root", out.machines_root);
+    out.apps_root     = as_str(kv, "apps_root", out.apps_root);
+    /* The derived three are saved too, but the root is the truth: a hand
+     * edit to one of them would otherwise split the library across folders. */
+    apply_storage_root(out);
     out.wizard_done  = as_bool(kv, "wizard_done", false);
     out.pad_layout   = as_str(kv, "pad_layout", out.pad_layout);
     out.pending_launch = as_str(kv, "pending_launch", out.pending_launch);
@@ -223,8 +237,11 @@ bool load_app_config(const std::string &path, AppConfig &out)
 bool save_app_config(const std::string &path, const AppConfig &cfg)
 {
     std::string s = "# Retro-DOS settings\n";
+    if (!cfg.storage_root.empty()) s += "storage_root=" + cfg.storage_root + "\n";
     s += "library_root=" + cfg.library_root + "\n";
     if (!cfg.iso_root.empty()) s += "iso_root=" + cfg.iso_root + "\n";
+    if (!cfg.machines_root.empty()) s += "machines_root=" + cfg.machines_root + "\n";
+    if (!cfg.apps_root.empty())     s += "apps_root=" + cfg.apps_root + "\n";
     s += "wizard_done=";  s += cfg.wizard_done ? "1" : "0"; s += "\n";
     if (!cfg.pad_layout.empty()) s += "pad_layout=" + cfg.pad_layout + "\n";
     if (!cfg.pending_launch.empty()) s += "pending_launch=" + cfg.pending_launch + "\n";
@@ -250,7 +267,8 @@ bool save_game_settings(const std::string &dir, const std::string &game, const S
 
 std::string build_conf(const Settings &s, const std::string &title,
                        const std::string &mount_dir, const std::string &run_cmd,
-                       bool run_raw, const std::string &extra_sections)
+                       bool run_raw, const std::string &extra_sections,
+                       const std::vector<DriveImage> &drives)
 {
     std::string c;
 
@@ -319,6 +337,9 @@ std::string build_conf(const Settings &s, const std::string &title,
      * the version, and 7.1 is what a Windows 9x guest needs -- see
      * retrodos_win98.cpp, which writes its own conf for exactly that reason. */
     if (!s.dos_ver.empty()) c += "ver=" + s.dos_ver + "\n";
+    /* Mounting a FAT32 image otherwise stops to ask whether to change the
+     * reported DOS version, and an [autoexec] has nobody to answer. */
+    c += "fat32setversion=auto\n";
     c += std::string("ems=") + (s.ems ? "true" : "false") + "\n";
     c += std::string("umb=") + (s.umb ? "true" : "false") + "\n";
 
@@ -351,8 +372,16 @@ std::string build_conf(const Settings &s, const std::string &title,
      * Neither is anything the user chose or can act on. The game's own output
      * is unaffected -- echo off only silences the commands WE issue. */
     c += "@echo off\n";
-    c += "mount -q C \"" + mount_dir + "\"\n";
-    c += "C:\n";
+    if (!mount_dir.empty()) c += "mount -q C \"" + mount_dir + "\"\n";
+    /* Quoted for the same reason the folder is: a path with a space in it is
+     * otherwise two arguments and mounts nothing, silently. */
+    for (const DriveImage &d : drives) {
+        if (!d.letter || d.path.empty()) continue;
+        const char *type = d.kind == DriveImage::Floppy ? "floppy"
+                         : d.kind == DriveImage::Hdd    ? "hdd" : "iso";
+        c += std::string("IMGMOUNT ") + d.letter + " \"" + d.path + "\" -t " + type + "\n";
+    }
+    if (!mount_dir.empty()) c += "C:\n";
     if (!run_cmd.empty()) {
         /* A program name is quoted because DOS titles are full of spaces; a
          * built-in command with arguments must not be, or it is looked up as
@@ -362,6 +391,31 @@ std::string build_conf(const Settings &s, const std::string &title,
     }
 
     return c;
+}
+
+
+void apply_storage_root(AppConfig &cfg)
+{
+    if (cfg.storage_root.empty()) return;
+    std::string r = cfg.storage_root;
+    while (r.size() > 1 && (r.back() == '/' || r.back() == '\\')) r.pop_back();
+    cfg.storage_root  = r;
+    cfg.library_root  = r + "/games";
+    cfg.iso_root      = r + "/discs";
+    cfg.machines_root = r + "/machines";
+    cfg.apps_root     = r + "/apps";
+}
+
+std::string discs_dir(const AppConfig &cfg, const char *kind)
+{
+    if (cfg.storage_root.empty())
+        return cfg.iso_root.empty() ? cfg.library_root : cfg.iso_root;
+    return cfg.iso_root + "/" + kind;
+}
+
+std::string machines_dir(const AppConfig &cfg)
+{
+    return cfg.machines_root.empty() ? cfg.library_root : cfg.machines_root;
 }
 
 } /* namespace retrodos */

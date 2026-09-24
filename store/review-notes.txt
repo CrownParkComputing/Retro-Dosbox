@@ -50,7 +50,7 @@ No account, login, credentials or files are needed. On a clean install:
 
   1. First run asks where DOS games should live. Tap Continue.
   2. The library already lists two entries, both bundled: "Retro-DOS demo"
-     and "FreeDOS 1.3 (DOS prompt)".
+     and "FreeDOS 1.3 (answer N for a DOS prompt)".
   3. Tap either. An emulated PC boots and runs it.
 
 The earlier submission noted that the engine exited during start-up on the

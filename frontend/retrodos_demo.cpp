@@ -114,8 +114,14 @@ std::string demo_command(DemoKind kind, bool &run_raw)
          * be quoted the way a program name is -- quoting it would have the
          * shell look for a file literally called "boot FREEDOS.IMG".
          *
-         * -l A boots it as drive A:, which is what the image expects; booting
-         * it as C: lands in a FreeDOS installer rather than a prompt. */
+         * -l A boots it as drive A:, which is what the image expects.
+         *
+         * Either way the floppy's FDAUTO.BAT calls SETUP.BAT BOOT, so the
+         * first thing on screen is the FreeDOS installer's "continue?"
+         * question. N drops to the prompt; Y with no hard disk stops with
+         * "no hard disk found", and even with one the package floppies it
+         * would go on to ask for are not bundled. That is why the title
+         * says what to answer. */
         run_raw = true;
         return "boot FREEDOS.IMG -l A";
     }
@@ -125,8 +131,13 @@ std::string demo_command(DemoKind kind, bool &run_raw)
 
 std::string demo_title(DemoKind kind)
 {
-    return kind == DemoKind::FreeDos ? "FreeDOS 1.3 (DOS prompt)"
+    return kind == DemoKind::FreeDos ? "FreeDOS 1.3 (answer N for a DOS prompt)"
                                      : RETRODOS_APP_NAME " demo";
+}
+
+bool demo_wants_keyboard(DemoKind kind)
+{
+    return kind == DemoKind::FreeDos;
 }
 
 } /* namespace retrodos */

@@ -61,10 +61,31 @@ std::string jstring_to_std(JNIEnv *env, jstring s)
 
 } /* namespace */
 
+std::string call_string(const char *name)
+{
+    JNIEnv *env = (JNIEnv *)SDL_GetAndroidJNIEnv();
+    if (!env) return std::string();
+    jclass cls = find_bridge(env);
+    if (!cls) return std::string();
+    jmethodID m = env->GetStaticMethodID(cls, name, "()Ljava/lang/String;");
+    if (!m) { env->ExceptionClear(); env->DeleteLocalRef(cls); return std::string(); }
+    jstring js = (jstring)env->CallStaticObjectMethod(cls, m);
+    if (env->ExceptionCheck()) { env->ExceptionClear(); }
+    std::string out = jstring_to_std(env, js);
+    if (js) env->DeleteLocalRef(js);
+    env->DeleteLocalRef(cls);
+    return out;
+}
+
 void saf_pick_folder(void)
 {
     call_void("pick");
 }
+
+void        saf_pick_root(void)   { call_void("pickRoot"); }
+void        saf_clear_root(void)  { call_void("clearRoot"); }
+std::string saf_root_path(void)   { return call_string("rootPath"); }
+std::string saf_root_label(void)  { return call_string("rootLabel"); }
 
 bool saf_has_grant(void)
 {
@@ -186,6 +207,10 @@ bool android_restart_app(void)
 
 namespace retrodos {
 void saf_pick_folder(void) {}
+void saf_pick_root(void) {}
+void saf_clear_root(void) {}
+std::string saf_root_path(void) { return std::string(); }
+std::string saf_root_label(void) { return std::string(); }
 bool saf_has_grant(void) { return false; }
 std::string saf_tree_uri(void) { return std::string(); }
 std::vector<std::string> saf_list_games(void) { return {}; }

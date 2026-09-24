@@ -186,6 +186,12 @@ bool fat_open(const std::string &image, Fat &f)
     if (sec[510] != 0x55 || sec[511] != 0xAA) return false;
 
     Uint64 start_lba = 0;
+    /* A floppy has no partition table: its boot sector is sector 0, which
+     * shows as a jump and a BPB with 512-byte sectors rather than an MBR. */
+    const bool floppy_like = (sec[0] == 0xEB || sec[0] == 0xE9) &&
+                             le16(sec + 0x0B) == 512 && sec[0x0D] != 0 &&
+                             le16(sec + 0x0E) != 0;
+    if (floppy_like) goto have_volume;
     for (int i = 0; i < 4; ++i) {
         const unsigned char *e = sec + 0x1BE + i * 16;
         const unsigned char type = e[4];
@@ -204,6 +210,7 @@ bool fat_open(const std::string &image, Fat &f)
 
     f.part_off = start_lba * 512ull;
     if (!read_at(f.io, f.part_off, sec, sizeof sec)) return false;
+have_volume:
 
     f.bytes_per_sector    = le16(sec + 0x0B);
     f.sectors_per_cluster = sec[0x0D];
@@ -244,7 +251,7 @@ bool fat_open(const std::string &image, Fat &f)
  * got as far as copying Windows" -- which is exactly what the Continue phase
  * means, and it is what lets that phase be reached without asking.
  */
-bool image_has_windows(const std::string &image)
+bool image_has_windows(const std::string &image, OsKind os)
 {
     /*
      * Cached against the image's own timestamp.
@@ -262,20 +269,32 @@ bool image_has_windows(const std::string &image)
 
     SDL_PathInfo info;
     if (!SDL_GetPathInfo(image.c_str(), &info)) return false;
+    static OsKind      cached_os = OsKind::Win98;
     if (image == cached_path && info.modify_time == cached_time &&
-        info.size == cached_size)
+        info.size == cached_size && os == cached_os)
         return cached_result;
 
     Fat f;
     bool found = false;
     if (fat_open(image, f)) {
         const Uint32 root = f.fat32 ? f.root_cluster : 0;
-        const Uint32 windir = dir_find(f, root, "WINDOWS    ", true);
-        if (windir >= 2) found = dir_find(f, windir, "WIN     COM", false) != 0;
+        if (os == OsKind::FreeDos) {
+            /* \FREEDOS\BIN\COMMAND.COM. The installer writes KERNEL.SYS to
+             * the root first and unpacks the packages afterwards, and a disk
+             * with a kernel and no shell boots to "bad or missing command
+             * interpreter" -- so the shell is the marker, not the kernel. */
+            const Uint32 fddir = dir_find(f, root, "FREEDOS    ", true);
+            const Uint32 bin   = fddir >= 2 ? dir_find(f, fddir, "BIN        ", true) : 0;
+            if (bin >= 2) found = dir_find(f, bin, "COMMAND COM", false) != 0;
+        } else {
+            const Uint32 windir = dir_find(f, root, "WINDOWS    ", true);
+            if (windir >= 2) found = dir_find(f, windir, "WIN     COM", false) != 0;
+        }
     }
     if (f.io) SDL_CloseIO(f.io);
 
     cached_path   = image;
+    cached_os     = os;
     cached_time   = info.modify_time;
     cached_size   = info.size;
     cached_result = found;
@@ -283,6 +302,34 @@ bool image_has_windows(const std::string &image)
 }
 
 } /* namespace */
+
+bool image_has_os(const std::string &path)
+{
+    Fat f;
+    bool found = false;
+    if (fat_open(path, f)) {
+        const Uint32 root = f.fat32 ? f.root_cluster : 0;
+        static const char *const names[] = {
+            "IO      SYS", "KERNEL  SYS", "IBMBIO  COM", "DRBIO   SYS", "NTLDR      ",
+        };
+        for (const char *n : names)
+            if (dir_find(f, root, n, false) != 0) { found = true; break; }
+    }
+    if (f.io) SDL_CloseIO(f.io);
+    return found;
+}
+
+const char *const kFreeDosIsoName      = "FD13LGCY.iso";
+
+const char *os_folder(OsKind os)
+{
+    return os == OsKind::FreeDos ? "FreeDOS" : "Windows 98";
+}
+
+const char *os_name(OsKind os)
+{
+    return os == OsKind::FreeDos ? "FreeDOS 1.3" : "Windows 98";
+}
 
 const char *win98_phase_name(Win98Phase p)
 {
@@ -295,6 +342,12 @@ const char *win98_phase_name(Win98Phase p)
     return "Windows 98";
 }
 
+const char *win98_phase_name(const Win98Install &w)
+{
+    if (w.phase == Win98Phase::Run) return os_name(w.os);
+    return win98_phase_name(w.phase);
+}
+
 std::string win98_blocker(const Win98Install &w)
 {
     if (w.dir.empty()) return "No folder chosen for this machine.";
@@ -304,7 +357,9 @@ std::string win98_blocker(const Win98Install &w)
      * once the machine is installed. */
     if (w.phase != Win98Phase::Run) {
         if (w.iso.empty())
-            return "Choose your Windows 98 CD-ROM image (.iso or .cue).";
+            return w.os == OsKind::FreeDos
+                ? std::string("Choose your FreeDOS CD image (") + kFreeDosIsoName + ")."
+                : std::string("Choose your Windows 98 CD-ROM image (.iso or .cue).");
         if (!file_exists(w.iso))
             return "That CD-ROM image is no longer there: " + w.iso;
     }
@@ -433,13 +488,18 @@ std::string win98_conf(const Win98Install &w)
     c += "showmenu=false\n";
 
     c += "\n[dosbox]\n";
-    c += "title=Windows 98\n";
+    c += std::string("title=") + os_name(w.os) + "\n";
     c += "memsize=" + std::to_string(w.memsize) + "\n";
     /* Ours, for the same reasons build_conf gives: upstream's banner points at
      * upstream's issue tracker, and a non-TTY stdin makes DOSBox-X block in a
      * working-directory prompt that has nowhere to appear on a phone. */
     c += "startbanner=false\n";
     c += "working directory option=noprompt\n";
+    /* Stated because the Voodoo depends on it: the card is a PCI device and
+     * PCI_AddSST_Device() attaches it to a bus that has to exist. DOSBox-X
+     * defaults this on, so this line changes nothing today -- it is here so
+     * that a machine which loses its 3D card cannot do it silently. */
+    c += "enable pci bus=true\n";
 
     c += "\n[video]\n";
     c += "vmemsize=8\n";
@@ -474,7 +534,17 @@ std::string win98_conf(const Win98Install &w)
     c += "floppy drive data rate limit=0\n";
 
     c += "\n[cpu]\n";
-    c += "cputype=pentium_mmx\n";
+    /*
+     * pentium_mmx is the Windows 98 guide's choice. It is NOT FreeDOS's: the
+     * FreeDOS 1.3 CD's boot floppy raises a storm of invalid-opcode faults
+     * under it -- hundreds of "Illegal Unhandled Interrupt Called 6" and then
+     * a triple fault, so the machine reboots forever and the screen is a
+     * red smear. Measured, not guessed: the same disc with the same core and
+     * cputype=pentium boots straight into the installer. So FreeDOS gets the
+     * plain Pentium, which is a period machine for it anyway.
+     */
+    c += std::string("cputype=") +
+         (w.os == OsKind::FreeDos ? "pentium" : "pentium_mmx") + "\n";
     /*
      * core=normal during installation is the guide's explicit instruction,
      * pending upstream issue #2215, and the repo's own NOTES file for Windows
@@ -492,6 +562,22 @@ std::string win98_conf(const Win98Install &w)
     c += std::string("core=") +
          ((w.phase == Win98Phase::Run && w.fast_core_after_install) ? "auto"
                                                                    : "normal") + "\n";
+    /* A FreeDOS machine has no use for a Voodoo: there is no Glide driver
+     * for it to load, and the card costs a software rasteriser's worth of
+     * time whether or not anything draws through it. */
+    const bool voodoo = w.voodoo && w.os == OsKind::Win98;
+    if (voodoo) {
+        /*
+         * 3dfx's own Windows driver reads model-specific registers that a
+         * Pentium MMX does not have, and DOSBox-X answers an undefined MSR
+         * with an Invalid Opcode exception -- which Windows reports as a
+         * fault in the display driver, on a machine that was working a moment
+         * earlier. The Voodoo guide gives two ways out: this, or a cputype of
+         * ppro_slow/pentium_ii. This one is chosen because the cputype above
+         * is the Windows 98 guide's and is not ours to overrule.
+         */
+        c += "ignore undefined msr=true\n";
+    }
 
     c += "\n[keyboard]\n";
     /*
@@ -532,6 +618,45 @@ std::string win98_conf(const Win98Install &w)
     c += "int13fakev86io=true\n";
     /* Guide: 4000ms, so Windows' auto-insert notification triggers properly. */
     c += "cd-rom insertion delay=4000\n";
+
+    /*
+     * The 3dfx Voodoo 1, following DOSBox-X's own Voodoo guide.
+     *
+     * "software", never "auto". Those two differ only on a build that has
+     * OpenGL, where auto means the OpenGL rasteriser -- and that one draws
+     * into a window the ENGINE owns. Here the frontend owns the window and the
+     * engine renders offscreen through Game Link, so the OpenGL path has
+     * nowhere to put a picture: Voodoo_VerticalTimer() calls
+     * voodoo_set_window() instead of RENDER_DrawLine(), the frame tap is never
+     * fed, and 3D comes out as a frozen or black screen while the game plays
+     * on underneath. The software rasteriser draws through RENDER, which is
+     * the same path the S3 output takes and therefore the one Game Link reads.
+     *
+     * The card takes the screen over while it is drawing (VGA_SetOverride), so
+     * 2D Windows and 3D games share the machine without the frontend knowing
+     * anything about either.
+     */
+    c += "\n[voodoo]\n";
+    c += std::string("voodoo_card=") + (voodoo ? "software" : "false") + "\n";
+    if (voodoo) {
+        /*
+         * Voodoo 1, stated. The core has a voodoo_type key and a Voodoo2 PCI
+         * identity, but the Voodoo2 register set and command FIFO were never
+         * ported from MAME -- voodoo_start() E_Exits on it -- so a Voodoo2 is
+         * a card the machine cannot start. The driver Windows needs is
+         * therefore the Voodoo Graphics one.
+         */
+        c += "voodoo_type=1\n";
+        /* 12MB: 4MB front buffer and two 4MB texture units, i.e. the largest
+         * Voodoo 1 there was. Textures are what a game runs out of first. */
+        c += "voodoo_maxmem=true\n";
+        /* Glide pass-through is a HOST library -- libglide2x.so -- and a wrapper
+         * that is not there fails by producing no 3D rather than by saying so.
+         * Low-level emulation needs nothing installed, which is the only kind
+         * of 3D an app that ships as one binary can promise. */
+        c += "glide=false\n";
+        c += "lfb=full_noaux\n";
+    }
 
     c += "\n[render]\n";
     c += "scaler=none\n";
@@ -591,7 +716,7 @@ bool win98_installed(const Win98Install &w)
     if (w.dir.empty()) return false;
     const std::string img = join(w.dir, w.hdd);
     if (!file_exists(img)) return false;
-    return image_has_windows(img);
+    return image_has_windows(img, w.os);
 }
 
 bool win98_load(const std::string &dir, Win98Install &out)
@@ -630,10 +755,12 @@ bool win98_load(const std::string &dir, Win98Install &out)
         if (!v.empty() && v.back() == '\r') v.pop_back();
 
         if      (k == "iso")     out.iso = v;
+        else if (k == "os")      out.os = (v == "freedos") ? OsKind::FreeDos : OsKind::Win98;
         else if (k == "hdd")     out.hdd = v;
         else if (k == "size_mb") out.size_mb = std::atoi(v.c_str());
         else if (k == "memsize") out.memsize = std::atoi(v.c_str());
         else if (k == "fast_core_after_install") out.fast_core_after_install = (v == "1");
+        else if (k == "voodoo") out.voodoo = (v != "0");
         else if (k == "phase") {
             const int p = std::atoi(v.c_str());
             /* Clamped rather than trusted: a hand-edited or truncated file
@@ -670,7 +797,8 @@ bool win98_save(const Win98Install &w)
     if (w.dir.empty()) return false;
     SDL_CreateDirectory(w.dir.c_str());
 
-    std::string s = "# Retro-DOS: Windows 98 machine\n";
+    std::string s = std::string("# Retro-DOS: ") + os_name(w.os) + " machine\n";
+    s += std::string("os=") + (w.os == OsKind::FreeDos ? "freedos" : "win98") + "\n";
     s += "phase=" + std::to_string((int)w.phase) + "\n";
     s += "iso=" + w.iso + "\n";
     s += "hdd=" + w.hdd + "\n";
@@ -678,6 +806,7 @@ bool win98_save(const Win98Install &w)
     s += "memsize=" + std::to_string(w.memsize) + "\n";
     s += std::string("fast_core_after_install=") +
          (w.fast_core_after_install ? "1" : "0") + "\n";
+    s += std::string("voodoo=") + (w.voodoo ? "1" : "0") + "\n";
 
     SDL_IOStream *out = SDL_IOFromFile(state_path(w.dir).c_str(), "wb");
     if (!out) return false;
