@@ -3267,22 +3267,12 @@ int main(int argc, char **argv)
                 bool wiz_next = true;      /* may this step be left forwards? */
 
                 if (wstep == 0) {
-                    ImGui::TextWrapped("This runs DOS software -- the games and programs "
-                                       "that came on floppies and CD-ROMs for the PC.");
+                    ImGui::TextWrapped("Runs DOS games and programs. A game is just a "
+                                       "folder of files -- nothing to install.");
                     ImGui::Spacing();
-                    ImGui::TextWrapped("A game here is a FOLDER. Whatever was on the disc "
-                                       "or in the download -- the .EXE, its data files, "
-                                       "everything -- goes in one folder, and that folder "
-                                       "is the game. There is nothing to install.");
-                    ImGui::Spacing();
-                    TextDimWrapped("The emulator is " RETRODOS_APP_CORE ", which is free "
-                                   "software under the GPL. This app does not supply DOS "
-                                   "games, and cannot fetch them for you.");
-                    ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-                    TextDimWrapped("Three short steps: where games live, how to put one "
-                                   "there, and something to run right now.");
+                    TextDimWrapped("Three steps: choose a folder, add a game, try one. "
+                                   "The emulator is " RETRODOS_APP_CORE " (free, GPL); this "
+                                   "app supplies no games.");
                 }
 
                 else if (wstep == 1) {
@@ -3310,49 +3300,17 @@ int main(int argc, char **argv)
                                    "cannot reach your Downloads, another app's files, or "
                                    "an external drive without you copying things in.");
 #else
-                    ImGui::TextWrapped("Choose ONE folder for everything. Inside it "
-                                       RETRODOS_APP_NAME " keeps these folders and "
-                                       "nothing else:");
-                    ImGui::Indent();
-                    ImGui::TextWrapped("games/           one folder or .zip per DOS game");
-                    ImGui::TextWrapped("apps/            DOS applications, the same way");
-                    ImGui::TextWrapped("discs/dos/       CDs and floppies for DOS");
-                    ImGui::TextWrapped("discs/windows/   the Windows CD and Windows game CDs");
-                    ImGui::TextWrapped("discs/freedos/   the FreeDOS CD");
-                    ImGui::TextWrapped("machines/        Windows 98 and FreeDOS, each with its hard disk");
-                    ImGui::Unindent();
+                    const float fs = ImGui::GetFontSize();
+                    ImGui::TextWrapped("Where should " RETRODOS_APP_NAME " keep your "
+                                       "games, discs and machines?");
                     ImGui::Spacing();
-#if defined(__ANDROID__)
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.82f, 0.4f, 1.0f));
-                    ImGui::TextWrapped("Android needs your permission to use that folder.");
-                    ImGui::PopStyleColor();
-                    TextDimWrapped("Press \"Choose a folder on this device\" below and the "
-                                   "system asks you to pick a folder and allow this app to "
-                                   "read and write it. Nothing outside that folder is "
-                                   "touched, and the permission lasts until you remove the "
-                                   "app. Pick a folder you made yourself (under Documents "
-                                   "or Download) rather than the root of a drive, which "
-                                   "Android often refuses to hand over. If you would "
-                                   "rather grant nothing, the app's own storage below "
-                                   "needs no permission -- but a PC only sees it under "
-                                   "Android/data and it is deleted with the app.");
-                    ImGui::Spacing();
-#endif
 
-                    /* A folder the user picked, as the first choice. The path
-                     * comes back "" when Android will not let the app write
-                     * there directly, and that is said out loud rather than
-                     * discovered when a disk image fails to be made. */
-                    static std::string saf_root, saf_label, saf_seen;
+                    /* A picked folder is applied as soon as the grant/dialog
+                     * returns -- no extra confirm step. */
+                    static std::string saf_root, saf_seen;
                     static int saf_poll = 0;
                     if (++saf_poll % 30 == 0 || saf_root.empty()) {
-                        saf_root  = retrodos::saf_root_path();
-                        saf_label = retrodos::saf_root_label();
-                        /* A folder just picked is the folder wanted: choosing
-                         * it in the system picker and then having to press a
-                         * radio button beside it was a second step nobody
-                         * expected, and skipping it left the app on its own
-                         * storage with "dos" on the end. */
+                        saf_root = retrodos::saf_root_path();
                         if (!saf_root.empty() && saf_root != saf_seen) {
                             saf_seen = saf_root;
                             choose_storage_root(cfg, saf_root);
@@ -3360,100 +3318,56 @@ int main(int argc, char **argv)
                         }
                     }
 #if !defined(__ANDROID__)
-                    /* A desktop has no document-tree grant; the system's own
-                     * folder dialog stands in for it. The callback arrives on
-                     * another thread, so it only records the choice and the
-                     * frame loop applies it. */
                     static std::string  dlg_picked;
                     static std::atomic<bool> dlg_ready{false};
                     if (dlg_ready.load()) {
                         dlg_ready.store(false);
-                        if (!dlg_picked.empty()) {
-                            choose_storage_root(cfg, dlg_picked);
-                            storage_chosen = true;
-                        }
+                        if (!dlg_picked.empty()) { choose_storage_root(cfg, dlg_picked); storage_chosen = true; }
                     }
                     auto pick_folder = [&]() {
                         SDL_ShowOpenFolderDialog(
                             [](void *, const char *const *files, int) {
-                                if (files && files[0]) dlg_picked = files[0];
-                                else dlg_picked.clear();
+                                if (files && files[0]) dlg_picked = files[0]; else dlg_picked.clear();
                                 dlg_ready.store(true);
                             },
-                            nullptr, win, cfg.storage_root.empty() ? nullptr
-                                                                   : cfg.storage_root.c_str(),
+                            nullptr, win, cfg.storage_root.empty() ? nullptr : cfg.storage_root.c_str(),
                             false);
                     };
-                    /* The grant-based rows below never apply here. */
-                    saf_root.clear(); saf_label.clear();
+                    saf_root.clear();
 #else
                     auto pick_folder = [&]() { retrodos::saf_pick_root(); };
 #endif
-                    const bool on_saf = !saf_root.empty() && cfg.storage_root == saf_root;
-                    if (ImGui::RadioButton("##saf", on_saf) && !saf_root.empty()) {
-                        choose_storage_root(cfg, saf_root);
+                    const ImVec2 big(ImGui::GetContentRegionAvail().x * 0.9f, fs * 2.6f);
+
+                    if (ImGui::Button("Select a folder", big)) pick_folder();
+                    TextDimWrapped("Choose a folder on this device. It is easy to reach "
+                                   "from a PC, and your files stay if the app is removed."
+#if defined(__ANDROID__)
+                                   " Android asks you to allow the app to use it."
+#endif
+                    );
+                    ImGui::Spacing();
+
+                    if (ImGui::Button("Use the default folder", big) && !roots.empty()) {
+                        cfg.storage_root = roots.front();
+                        retrodos::apply_storage_root(cfg);
                         storage_chosen = true;
                     }
-                    ImGui::SameLine();
-                    if (!saf_root.empty()) {
-                        ImGui::TextWrapped("%s", saf_label.c_str());
-                        ImGui::SameLine();
-                        if (ImGui::SmallButton("Change")) pick_folder();
-                    } else if (!saf_label.empty()) {
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.3f, 1.0f));
-                        ImGui::TextWrapped("%s -- Android will not let the app write there "
-                                           "directly. Pick a folder you made yourself under "
-                                           "Documents or Download, or use app storage below.",
-                                           saf_label.c_str());
-                        ImGui::PopStyleColor();
-                        ImGui::SameLine();
-                        if (ImGui::SmallButton("Change")) pick_folder();
-                    } else {
-                        if (ImGui::Button("Choose a folder on this device...")) pick_folder();
-                    }
-                    TextDimWrapped("Your own folder: easy to reach from a PC over USB or "
-                                   "from a file manager, and it stays if the app is "
-                                   "removed.");
-                    ImGui::Spacing();
-                    ImGui::TextWrapped("Or use the app's own storage:");
-                    for (size_t i = 0; i < roots.size(); ++i) {
-                        ImGui::PushID((int)i);
-                        if (ImGui::RadioButton("##root", cfg.storage_root == roots[i])) {
-                            cfg.storage_root = roots[i];
-                            retrodos::apply_storage_root(cfg);
-                            storage_chosen = true;
-                        }
-                        ImGui::SameLine();
-                        ImGui::TextWrapped("%s%s", root_label(roots[i]).c_str(),
-                                           path_is_dir(roots[i]) ? ""
-                                                                 : "   (will be created)");
-                        ImGui::PopID();
-                    }
-                    TextDimWrapped("Needs no permission and works on removable storage, "
-                                   "but a PC only sees it under Android/data, and it goes "
-                                   "when the app does.");
-                    if (ImGui::SmallButton("Rescan volumes")) {
-                        roots = candidate_roots();
-                        for (const auto &r : roots) SDL_CreateDirectory(r.c_str());
-                    }
+                    TextDimWrapped("The app's own storage on this device. No permission "
+                                   "needed.");
 
                     ImGui::Spacing();
                     ImGui::Separator();
                     ImGui::Spacing();
                     if (storage_chosen) {
-                        ImGui::TextWrapped("Chosen: %s", cfg.storage_root.c_str());
-                        ImGui::TextDisabled("games in %s/games, discs under %s/discs",
-                                            cfg.storage_root.c_str(), cfg.storage_root.c_str());
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.85f, 0.55f, 1.0f));
+                        ImGui::TextWrapped("Using: %s", cfg.storage_root.c_str());
+                        ImGui::PopStyleColor();
+                        ImGui::TextDisabled("games/, discs/ and machines/ are made inside it "
+                                            "when you press Next.");
                     } else {
-                        ImGui::TextWrapped("Chosen: nothing yet");
+                        ImGui::TextDisabled("Pick one of the two above to continue.");
                     }
-                    ImGui::Spacing();
-                    TextDimWrapped("Have a games collection somewhere else too? It can be "
-                                   "browsed where it is; each game is copied in the first "
-                                   "time it is played.");
-                    if (ImGui::SmallButton(retrodos::saf_has_grant() ? "Change collection folder"
-                                                                     : "Browse a collection..."))
-                        retrodos::saf_pick_folder();
 #endif
                     /* Not skippable. The default the app starts with is only
                      * so it can run; where everything lives is the one choice
@@ -3583,20 +3497,21 @@ int main(int argc, char **argv)
 
                 /* ---- footer ---- */
                 ImGui::Separator();
+                const ImVec2 wnav(ImGui::GetFontSize() * 8.0f, ImGui::GetFontSize() * 2.4f);
                 ImGui::BeginDisabled(wstep == 0);
-                if (ImGui::Button("Back")) --wstep;
+                if (ImGui::Button("Back", wnav)) --wstep;
                 ImGui::EndDisabled();
                 ImGui::SameLine();
 
                 if (wstep < kWizSteps - 1) {
                     ImGui::BeginDisabled(!wiz_next);
-                    if (ImGui::Button("Next")) {
+                    if (ImGui::Button("Next", wnav)) {
                         if (wstep == 1) { make_storage_dirs(); refresh(); }
                         ++wstep;
                     }
                     ImGui::EndDisabled();
                 } else {
-                    if (ImGui::Button("Finish")) {
+                    if (ImGui::Button("Finish", wnav)) {
                         make_storage_dirs();
                         cfg.wizard_done = true;
                         retrodos::save_app_config(cfg_path, cfg);
@@ -4882,10 +4797,9 @@ int main(int argc, char **argv)
                         w_loaded = true;
                         /* Resume where the machine actually is, so coming back
                          * to this page does not start the explanation again. */
-                        step = (w.phase == retrodos::Win98Phase::Create)   ? 0
-                             : (w.phase == retrodos::Win98Phase::Install)  ? 2
-                             : (w.phase == retrodos::Win98Phase::Continue) ? 3
-                                                                           : 4;
+                        step = (w.phase == retrodos::Win98Phase::Create) ? 0
+                             : (w.phase == retrodos::Win98Phase::Run)    ? 2
+                                                                         : 1;
                     }
 
                     /*
@@ -4904,19 +4818,17 @@ int main(int argc, char **argv)
                             w.phase = truth;
                             retrodos::win98_save(w);
                         }
-                        if (w.phase == retrodos::Win98Phase::Create && step > 2)
-                            step = 2;         /* no disk: cannot be past making it */
-                        else if (w.phase == retrodos::Win98Phase::Install && step < 2)
-                            step = 2;
-                        else if (w.phase == retrodos::Win98Phase::Continue && step < 4)
-                            step = 4;         /* Setup has rebooted at least once */
-                        else if (w.phase == retrodos::Win98Phase::Run && step < 5)
-                            step = 5;
+                        /* Three screens, driven by the phase the files show:
+                         * Get ready (no disk yet), Install (Setup running,
+                         * across its reboots), Done. */
+                        if (w.phase == retrodos::Win98Phase::Create) step = 0;
+                        else if (w.phase == retrodos::Win98Phase::Run) {
+                            if (step < 2) step = 2;
+                        } else step = 1;   /* Install or Continue */
                     }
 
                     static const char *kStepName[] = {
-                        "Before you start", "Choose your CD", "Make the disk",
-                        "Run Setup", "Finish Setup", "Done"
+                        "Get ready", "Install", "Done"
                     };
                     const int kSteps = (int)SDL_arraysize(kStepName);
                     if (step < 0) step = 0;
@@ -4940,67 +4852,27 @@ int main(int argc, char **argv)
                     const float col = std::min(cw, ImGui::GetFontSize() * 34.0f);
                     ImGui::PushTextWrapPos(col);
 
-                    if (step == 0 && fd) {
-                        ImGui::TextWrapped("This installs FreeDOS 1.3 inside the emulator "
-                                           "from its own CD image, the same way the "
-                                           "Windows 98 walkthrough does.");
-                        ImGui::Spacing();
-                        ImGui::TextWrapped("You need two things:");
-                        ImGui::Bullet();
-                        ImGui::TextWrapped("The FreeDOS 1.3 Legacy CD image, %s, in your "
-                                           "discs folder. The next step says where.",
-                                           retrodos::kFreeDosIsoName);
-                        ImGui::Bullet();
-                        ImGui::TextWrapped("About ten minutes. The installer restarts "
-                                           "the machine once part way through.");
-                        ImGui::Spacing();
-                        TextDimWrapped("The FreeDOS floppy on the Demo page only boots "
-                                       "to a prompt. Installing onto a hard disk needs "
-                                       "the CD, which is where the packages are.");
-                        ImGui::Spacing();
-                        ImGui::TextWrapped("Everything is kept in:");
-                        ImGui::TextDisabled("%s", wdir.c_str());
-                    }
-                    else if (step == 0) {
-                        ImGui::TextWrapped("This installs a real copy of Windows 98 "
-                                           "inside the emulator, following DOSBox-X's "
-                                           "own guide.");
-                        ImGui::Spacing();
-                        ImGui::TextWrapped("You need two things:");
-                        ImGui::Bullet();
-                        ImGui::TextWrapped("A Windows 98 CD image (.iso). It must be an "
-                                           "OEM Full edition -- those are the ones that "
-                                           "boot on their own. An upgrade disc will not.");
-                        ImGui::Bullet();
-                        ImGui::TextWrapped("About 20 minutes, and patience: Setup runs "
-                                           "on the slow, accurate processor because the "
-                                           "fast one crashes it.");
-                        ImGui::Spacing();
-                        TextDimWrapped("Nothing is downloaded and no Windows files are "
-                                       "bundled with this app. The disc is yours.");
-                        ImGui::Spacing();
-                        ImGui::TextWrapped("Everything is kept in:");
-                        ImGui::TextDisabled("%s", wdir.c_str());
-                    }
-                    else if (step == 1) {
+                    // ---- Screen 0: Get ready (pick CD + make the disk) ----
+                    if (step == 0) {
                         if (fd) {
-                            ImGui::TextWrapped("Put your FreeDOS 1.3 CD image, %s, in "
-                                               "the FreeDOS discs folder:",
-                                               retrodos::kFreeDosIsoName);
-                            ImGui::TextDisabled("%s", retrodos::discs_dir(cfg, "freedos").c_str());
-                            ImGui::Spacing();
-                            TextDimWrapped("Use the Legacy CD, not the LiveCD: only the "
-                                           "Legacy CD boots here. FreeDOS floppy images "
-                                           "can go in the same folder and show under "
-                                           "Discs, but this walkthrough installs from "
-                                           "the CD.");
-                            ImGui::Spacing();
-                            ImGui::Separator();
-                            ImGui::Spacing();
-                            ImGui::TextWrapped("Then pick it here.");
+                            ImGui::TextWrapped("Installs FreeDOS 1.3 onto a new hard disk "
+                                               "from its Legacy CD. About ten minutes and "
+                                               "one restart.");
                         } else {
-                            ImGui::TextWrapped("Pick your Windows 98 disc image.");
+                            ImGui::TextWrapped("Installs Windows 98 onto a new hard disk "
+                                               "from your own CD image. Needs an OEM Full "
+                                               "edition (.iso) - upgrade discs do not boot. "
+                                               "About 20 minutes.");
                         }
+                        ImGui::Spacing();
+
+                        ImGui::TextWrapped("1. Put the %s in:",
+                                           fd ? "FreeDOS Legacy CD (FD13LGCY.iso)"
+                                              : "Windows 98 CD image");
+                        ImGui::TextDisabled("%s", (fd ? retrodos::discs_dir(cfg, "freedos")
+                                                       : (cfg.storage_root.empty()
+                                                            ? cfg.library_root
+                                                            : cfg.storage_root)).c_str());
                         ImGui::Spacing();
 
                         static char iso_buf[1024] = {0};
@@ -5008,13 +4880,7 @@ int main(int argc, char **argv)
                             SDL_strlcpy(iso_buf, w.iso.c_str(), sizeof(iso_buf));
                             iso_primed = true;
                         }
-
-                        /* Discs in the games folder, as buttons. Typing an
-                         * absolute path on a handheld with an on-screen
-                         * keyboard is miserable. */
                         int offered = 0;
-                        const std::string droot = cfg.storage_root.empty() ? cfg.library_root
-                                                                           : cfg.storage_root;
                         for (const std::string &full : scan_media(cfg, MediaKind::Cd)) {
                             if (offered >= 12) break;
                             ImGui::PushID(full.c_str());
@@ -5022,7 +4888,8 @@ int main(int argc, char **argv)
                             if (chosen)
                                 ImGui::PushStyleColor(ImGuiCol_Button,
                                     ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                            if (ImGui::Button(base_name(full).c_str(), ImVec2(cw * 0.86f, ImGui::GetFontSize() * 2.1f))) {
+                            if (ImGui::Button(base_name(full).c_str(),
+                                              ImVec2(cw * 0.86f, ImGui::GetFontSize() * 2.1f))) {
                                 w.iso = full;
                                 SDL_strlcpy(iso_buf, w.iso.c_str(), sizeof(iso_buf));
                                 retrodos::win98_save(w);
@@ -5031,270 +4898,160 @@ int main(int argc, char **argv)
                             ImGui::PopID();
                             ++offered;
                         }
-                        if (!offered) {
-                            TextDimWrapped("No CD image found anywhere in your folder. "
-                                           "Put one there and it will be listed here, or "
-                                           "type the full path:");
-                            ImGui::TextDisabled("%s", droot.c_str());
-                        } else {
-                            ImGui::Spacing();
-                            TextDimWrapped("Or type a full path:");
-                        }
+                        if (!offered)
+                            TextDimWrapped("No CD image found yet. Add one, or type a path:");
                         ImGui::SetNextItemWidth(cw * 0.86f);
                         if (ImGui::InputText("##isopath", iso_buf, sizeof(iso_buf))) {
                             w.iso = iso_buf;
                             retrodos::win98_save(w);
                         }
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
 
-                        ImGui::Spacing();
-                        if (w.iso.empty()) {
-                            can_advance = false;
-                            ImGui::TextDisabled("Choose a disc to continue.");
-                        } else {
-                            ImGui::Text("Using: %s", w.iso.c_str());
-                        }
-                    }
-                    else if (step == 2) {
-                        ImGui::TextWrapped("%s needs a hard disk to install onto. "
-                                           "This makes an empty one.", osname.c_str());
-                        ImGui::Spacing();
+                        ImGui::TextWrapped("2. Make a hard disk to install onto.");
                         static int size_choice = 0;
                         static const char *kSizes[] = { "8 GB (recommended)", "2 GB",
                                                         "16 GB", "32 GB" };
                         static const int   kSizeMb[] = { 0, 2048, 16384, 32768 };
                         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
-                        ImGui::Combo("Size", &size_choice, kSizes,
-                                     (int)SDL_arraysize(kSizes));
+                        ImGui::Combo("Size", &size_choice, kSizes, (int)SDL_arraysize(kSizes));
                         w.size_mb = kSizeMb[size_choice];
-                        if (fd)
-                            TextDimWrapped("It only takes up what it actually uses, so a "
-                                           "bigger disk costs nothing until you fill it. "
-                                           "Over 512 MB is formatted FAT32, which FreeDOS "
-                                           "handles.");
-                        else
-                            TextDimWrapped("It only takes up what it actually uses, so a "
-                                           "bigger disk costs nothing until you fill it. "
-                                           "Over 512 MB is formatted FAT32; Windows 98's own "
-                                           "driver cannot handle more than 128 GB.");
                         ImGui::Spacing();
-
-                        const bool made = (w.phase != retrodos::Win98Phase::Create);
-                        if (made) {
-                            ImGui::TextWrapped("The disk is ready.");
-                        } else {
-                            if (ImGui::Button("Make the disk", ImVec2(cw * 0.62f, ImGui::GetFontSize() * 2.2f))) {
-                                SDL_CreateDirectory(w.dir.c_str());
+                        if (w.iso.empty()) {
+                            ImGui::TextDisabled("Choose a CD above first.");
+                        } else if (ImGui::Button("Make the disk and continue",
+                                                 ImVec2(cw * 0.62f, ImGui::GetFontSize() * 2.4f))) {
+                            SDL_CreateDirectory(w.dir.c_str());
+                            retrodos::win98_save(w);
+                            Game g;
+                            g.name = retrodos::os_folder(os);
+                            g.dir  = w.dir;
+                            g.conf_override = retrodos::win98_conf(w);
+                            launch(g);
+                        }
+                        TextDimWrapped("A DOS screen flashes up and closes itself - that is "
+                                       "the disk being made. The next screen then opens.");
+                        can_advance = false;   /* making the disk is the way on */
+                    }
+                    // ---- Screen 1: Install (Setup, across its reboots) ----
+                    else if (step == 1) {
+                        const bool cont = (w.phase == retrodos::Win98Phase::Continue);
+                        const std::string blocked = retrodos::win98_blocker(w);
+                        if (!blocked.empty()) {
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.75f, 0.3f, 1.0f));
+                            ImGui::TextWrapped("%s", blocked.c_str());
+                            ImGui::PopStyleColor();
+                            ImGui::Spacing();
+                        }
+                        if (fd && !cont) {
+                            ImGui::TextWrapped("Runs the FreeDOS installer from the CD. The "
+                                               "keyboard opens itself.");
+                            ImGui::Spacing();
+                            ImGui::TextWrapped("Language 1, proceed Y, partition Y. It "
+                                               "restarts to a prompt - that is normal: come "
+                                               "back and press Start again. Second run: "
+                                               "format C: Y, pick a layout, Full install, Y.");
+                            ImGui::Spacing();
+                            ImGui::BeginDisabled(!blocked.empty());
+                            if (ImGui::Button("Start the installer",
+                                              ImVec2(cw * 0.62f, ImGui::GetFontSize() * 2.4f))) {
+                                win_hint =
+                                    "Language: 1.  Proceed: Y.\n"
+                                    "1st run: partition Y, restart Y, then start this again.\n"
+                                    "2nd run: format Y, layout, Full installation, install Y, restart Y.";
+                                w.phase = retrodos::Win98Phase::Install;
                                 retrodos::win98_save(w);
-                                Game g;
-                                g.name = retrodos::os_folder(os);
-                                g.dir  = w.dir;
+                                win_running_dir = w.dir; win_running_phase = w.phase; win_running_os = w.os;
+                                Game g; g.name = retrodos::os_folder(os); g.dir = w.dir;
                                 g.conf_override = retrodos::win98_conf(w);
                                 launch(g);
                             }
-                            TextDimWrapped("A DOS screen appears for a moment and closes "
-                                           "again by itself. That is all this step does.");
-                            can_advance = false;
+                            ImGui::EndDisabled();
+                            ImGui::Spacing();
+                            TextDimWrapped("'Not a bootable disk'? The image is the LiveCD. "
+                                           "Only the Legacy CD boots here.");
                         }
+                        else if (!fd && !cont) {
+                            ImGui::TextWrapped("Boots from the CD to run Setup.");
+                            ImGui::Spacing();
+                            ImGui::TextWrapped("First menu: choose 2, Boot from CD-ROM. "
+                                               "Second menu: choose 1, or wait. Setup copies "
+                                               "files and restarts - come back and press "
+                                               "Continue.");
+                            ImGui::Spacing();
+                            ImGui::BeginDisabled(!blocked.empty());
+                            if (ImGui::Button("Start Setup",
+                                              ImVec2(cw * 0.62f, ImGui::GetFontSize() * 2.4f))) {
+                                win_hint =
+                                    "1st menu: choose 2, Boot from CD-ROM.\n"
+                                    "2nd menu: choose 1, or wait 30s.\n"
+                                    "At a prompt instead?  D:  then  cd \\WIN98  then  setup";
+                                w.phase = retrodos::Win98Phase::Install;
+                                retrodos::win98_save(w);
+                                win_running_dir = w.dir; win_running_phase = w.phase; win_running_os = w.os;
+                                Game g; g.name = "Windows 98"; g.dir = w.dir;
+                                g.conf_override = retrodos::win98_conf(w);
+                                launch(g);
+                            }
+                            ImGui::EndDisabled();
+                            ImGui::Spacing();
+                            TextDimWrapped("'Not a bootable disk'? The disc is not an OEM "
+                                           "Full edition and cannot start Setup on its own.");
+                        }
+                        else {   /* Continue: boot from the hard disk to finish */
+                            ImGui::TextWrapped("%s", fd
+                                ? "FreeDOS is on the disk. It now boots from it, with the "
+                                  "CD still in as D: for more packages."
+                                : "Setup has restarted. It now boots from the disk and "
+                                  "finishes, restarting itself a few times - each time you "
+                                  "land back here, press Continue again.");
+                            ImGui::Spacing();
+                            ImGui::BeginDisabled(!blocked.empty());
+                            if (ImGui::Button(fd ? "Boot FreeDOS" : "Continue Setup",
+                                              ImVec2(cw * 0.62f, ImGui::GetFontSize() * 2.4f))) {
+                                win_hint = fd
+                                    ? "It should boot to a C:\\> prompt. Stuck at 'bad or "
+                                      "missing command interpreter'? Start again."
+                                    : "Let Setup finish. It restarts several times; each "
+                                      "time you land back here, press Continue Setup again.";
+                                w.phase = retrodos::Win98Phase::Continue;
+                                retrodos::win98_save(w);
+                                win_running_dir = w.dir; win_running_phase = w.phase; win_running_os = w.os;
+                                Game g; g.name = retrodos::os_folder(os); g.dir = w.dir;
+                                g.conf_override = retrodos::win98_conf(w);
+                                launch(g);
+                            }
+                            ImGui::EndDisabled();
+                            ImGui::Spacing();
+                            ImGui::Separator();
+                            ImGui::Spacing();
+                            if (retrodos::win98_installed(w)) {
+                                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.85f, 0.55f, 1.0f));
+                                ImGui::TextWrapped("%s is on the hard disk.", osname.c_str());
+                                ImGui::PopStyleColor();
+                            }
+                            ImGui::TextWrapped("%s", fd
+                                ? "Once it boots to a C:\\> prompt on its own, it is done:"
+                                : "Once Windows reaches its desktop and asks nothing more, "
+                                  "it is done:");
+                            if (ImGui::Button(fd ? "FreeDOS is installed" : "Windows is installed",
+                                              ImVec2(cw * 0.62f, ImGui::GetFontSize() * 2.4f))) {
+                                w.phase = retrodos::Win98Phase::Run;
+                                retrodos::win98_save(w);
+                            }
+                        }
+                        can_advance = false;   /* the phase clamp carries you forward */
                     }
-                    else if (step == 3 && fd) {
-                        ImGui::TextWrapped("Runs the FreeDOS installer from the CD. "
-                                           "The keyboard opens itself; the on-screen "
-                                           "hint lists the keys.");
-                        ImGui::Spacing();
-                        ImGui::TextWrapped("Y to proceed and to partition. It restarts to "
-                                           "a prompt -- that is normal: come back and "
-                                           "press Start again. Second run: Y to format "
-                                           "C:, pick a layout, Full installation, Y.");
-                        ImGui::Spacing();
-
-                        const std::string blocked = retrodos::win98_blocker(w);
-                        if (!blocked.empty()) {
-                            ImGui::PushStyleColor(ImGuiCol_Text,
-                                                  ImVec4(1.0f, 0.75f, 0.3f, 1.0f));
-                            ImGui::TextWrapped("%s", blocked.c_str());
-                            ImGui::PopStyleColor();
-                        }
-                        ImGui::BeginDisabled(!blocked.empty());
-                        if (ImGui::Button("Start the installer", ImVec2(cw * 0.62f, ImGui::GetFontSize() * 2.2f))) {
-                            win_hint =
-                                "Language: 1.  Proceed: Y.\n"
-                                "1st run: partition Y, restart Y, then start this again.\n"
-                                "2nd run: format Y, layout, Full installation, install Y, restart Y.";
-                            w.phase = retrodos::Win98Phase::Install;
-                            retrodos::win98_save(w);
-                            win_running_dir   = w.dir;
-                            win_running_phase = w.phase;
-                            win_running_os    = w.os;
-                            Game g;
-                            g.name = retrodos::os_folder(os);
-                            g.dir  = w.dir;
-                            g.conf_override = retrodos::win98_conf(w);
-                            launch(g);
-                        }
-                        ImGui::EndDisabled();
-                        ImGui::Spacing();
-                        TextDimWrapped("If it says 'El Torito boot record not found' or "
-                                       "'This is not a bootable disk', the image is the "
-                                       "LiveCD. Only the Legacy CD boots here.");
-                    }
-                    else if (step == 3) {
-                        ImGui::TextWrapped("Starts the machine from the CD to run Setup.");
-                        ImGui::Spacing();
-                        ImGui::TextWrapped("First menu: choose 2, Boot from CD-ROM.");
-                        ImGui::TextWrapped("Second menu: choose 1, or wait 30 seconds.");
-                        ImGui::Spacing();
-                        TextDimWrapped("Setup copies files and restarts to a DOS prompt "
-                                       "-- that is normal: come back and press Next. At a "
-                                       "prompt instead? Type D:  then  cd \\WIN98  then  setup");
-                        ImGui::Spacing();
-
-                        const std::string blocked = retrodos::win98_blocker(w);
-                        if (!blocked.empty()) {
-                            ImGui::PushStyleColor(ImGuiCol_Text,
-                                                  ImVec4(1.0f, 0.75f, 0.3f, 1.0f));
-                            ImGui::TextWrapped("%s", blocked.c_str());
-                            ImGui::PopStyleColor();
-                        }
-                        ImGui::BeginDisabled(!blocked.empty());
-                        if (ImGui::Button("Start Setup", ImVec2(cw * 0.62f, ImGui::GetFontSize() * 2.2f))) {
-                            win_hint =
-                                "1st menu: choose 2, Boot from CD-ROM.\n"
-                                "2nd menu: choose 1, or wait 30s.\n"
-                                "At a prompt instead?  D:  then  cd \\WIN98  then  setup";
-                            w.phase = retrodos::Win98Phase::Install;
-                            retrodos::win98_save(w);
-                            win_running_dir   = w.dir;
-                            win_running_phase = w.phase;
-                            win_running_os    = w.os;
-                            Game g;
-                            g.name = "Windows 98";
-                            g.dir  = w.dir;
-                            g.conf_override = retrodos::win98_conf(w);
-                            launch(g);
-                        }
-                        ImGui::EndDisabled();
-                        ImGui::Spacing();
-                        TextDimWrapped("If it says 'This is not a bootable disk', the "
-                                       "disc is not an OEM Full edition and cannot start "
-                                       "Setup on its own.");
-                    }
-                    else if (step == 4 && fd) {
-                        ImGui::TextWrapped("FreeDOS is on the hard disk. From here the "
-                                           "machine boots from it, with the CD still in "
-                                           "the drive as D: so more packages can be added "
-                                           "later.");
-                        ImGui::Spacing();
-                        const std::string blocked4 = retrodos::win98_blocker(w);
-                        if (!blocked4.empty()) {
-                            ImGui::PushStyleColor(ImGuiCol_Text,
-                                                  ImVec4(1.0f, 0.75f, 0.3f, 1.0f));
-                            ImGui::TextWrapped("%s", blocked4.c_str());
-                            ImGui::PopStyleColor();
-                        }
-                        ImGui::BeginDisabled(!blocked4.empty());
-                        if (ImGui::Button("Boot FreeDOS", ImVec2(cw * 0.62f, ImGui::GetFontSize() * 2.2f))) {
-                            win_hint = "It should boot to a C:\\> prompt. If it stops at "
-                                       "'bad or missing command interpreter', the "
-                                       "packages did not finish: Start again.";
-                            w.phase = retrodos::Win98Phase::Continue;
-                            retrodos::win98_save(w);
-                            win_running_dir   = w.dir;
-                            win_running_phase = w.phase;
-                            win_running_os    = w.os;
-                            Game g;
-                            g.name = retrodos::os_folder(os);
-                            g.dir  = w.dir;
-                            g.conf_override = retrodos::win98_conf(w);
-                            launch(g);
-                        }
-                        ImGui::EndDisabled();
-                        ImGui::Spacing();
-                        ImGui::Separator();
-                        ImGui::Spacing();
-                        if (retrodos::win98_installed(w)) {
-                            ImGui::PushStyleColor(ImGuiCol_Text,
-                                                  ImVec4(0.55f, 0.85f, 0.55f, 1.0f));
-                            ImGui::TextWrapped("FreeDOS is on the hard disk.");
-                            ImGui::PopStyleColor();
-                        }
-                        ImGui::TextWrapped("Once it boots to a C:\\> prompt on its own, "
-                                           "it is installed:");
-                        if (ImGui::Button("FreeDOS is installed", ImVec2(cw * 0.62f, ImGui::GetFontSize() * 2.2f))) {
-                            w.phase = retrodos::Win98Phase::Run;
-                            retrodos::win98_save(w);
-                            step = 5;
-                        }
-                        can_advance = false;   /* the button above is the way on */
-                    }
-                    else if (step == 4) {
-                        ImGui::TextWrapped("Setup has restarted the machine at least "
-                                           "once. From here it boots from the hard disk "
-                                           "and finishes, with the CD still in the "
-                                           "drive because it keeps asking for it.");
-                        ImGui::Spacing();
-                        ImGui::TextWrapped("Expect to run this a few times: Windows "
-                                           "restarts itself several times before it is "
-                                           "finished, and each restart brings you back "
-                                           "here.");
-                        ImGui::Spacing();
-                        const std::string blocked4 = retrodos::win98_blocker(w);
-                        if (!blocked4.empty()) {
-                            ImGui::PushStyleColor(ImGuiCol_Text,
-                                                  ImVec4(1.0f, 0.75f, 0.3f, 1.0f));
-                            ImGui::TextWrapped("%s", blocked4.c_str());
-                            ImGui::PopStyleColor();
-                        }
-                        ImGui::BeginDisabled(!blocked4.empty());
-                        if (ImGui::Button("Continue Setup", ImVec2(cw * 0.62f, ImGui::GetFontSize() * 2.2f))) {
-                            win_hint = "Let Setup finish. It restarts the machine "
-                                       "several times; each time you land back in "
-                                       "Retro-DOS, press Continue Setup again.";
-                            w.phase = retrodos::Win98Phase::Continue;
-                            retrodos::win98_save(w);
-                            win_running_dir   = w.dir;
-                            win_running_phase = w.phase;
-                            win_running_os    = w.os;
-                            Game g;
-                            g.name = "Windows 98";
-                            g.dir  = w.dir;
-                            g.conf_override = retrodos::win98_conf(w);
-                            launch(g);
-                        }
-                        ImGui::EndDisabled();
-                        ImGui::Spacing();
-                        ImGui::Separator();
-                        ImGui::Spacing();
-                        /* Read from the disk image rather than assumed: the app
-                         * can see that Windows is on there, and saying so is
-                         * the difference between asking the user to confirm
-                         * something and asking them to guess. */
-                        if (retrodos::win98_installed(w)) {
-                            ImGui::PushStyleColor(ImGuiCol_Text,
-                                                  ImVec4(0.55f, 0.85f, 0.55f, 1.0f));
-                            ImGui::TextWrapped("Windows is on the hard disk.");
-                            ImGui::PopStyleColor();
-                        }
-                        ImGui::TextWrapped("Once Windows reaches its desktop and asks "
-                                           "you nothing more, it is installed:");
-                        if (ImGui::Button("Windows is installed", ImVec2(cw * 0.62f, ImGui::GetFontSize() * 2.2f))) {
-                            w.phase = retrodos::Win98Phase::Run;
-                            retrodos::win98_save(w);
-                            step = 5;
-                        }
-                        can_advance = false;   /* the button above is the way on */
-                    }
+                    // ---- Screen 2: Done ----
                     else if (fd) {
                         ImGui::TextWrapped("FreeDOS 1.3 is installed.");
                         ImGui::Spacing();
-                        if (ImGui::Button("Start FreeDOS", ImVec2(cw * 0.62f, ImGui::GetFontSize() * 2.2f))) {
+                        if (ImGui::Button("Start FreeDOS", ImVec2(cw * 0.62f, ImGui::GetFontSize() * 2.4f))) {
                             w.phase = retrodos::Win98Phase::Run;
                             retrodos::win98_save(w);
-                            win_running_dir   = w.dir;
-                            win_running_phase = w.phase;
-                            win_running_os    = w.os;
-                            Game g;
-                            g.name = retrodos::os_folder(os);
-                            g.dir  = w.dir;
+                            win_running_dir = w.dir; win_running_phase = w.phase; win_running_os = w.os;
+                            Game g; g.name = retrodos::os_folder(os); g.dir = w.dir;
                             g.conf_override = retrodos::win98_conf(w);
                             launch(g);
                         }
@@ -5302,29 +5059,18 @@ int main(int argc, char **argv)
                         ImGui::Checkbox("Faster processor now that it is installed",
                                         &w.fast_core_after_install);
                         if (ImGui::IsItemDeactivatedAfterEdit()) retrodos::win98_save(w);
-                        TextDimWrapped("The installer runs on the slow, accurate "
-                                       "processor. Afterwards the fast one is fine.");
-                        ImGui::Spacing();
-                        ImGui::Separator();
-                        ImGui::Spacing();
-                        TextDimWrapped("The CD stays in as D: while the image is still "
-                                       "in your games folder; FDIMPLES installs more "
-                                       "packages from it. This machine is its own hard "
-                                       "disk: your DOS Library games are not inside it, "
-                                       "and still run from the Library as before.");
+                        TextDimWrapped("The installer needs the slow, accurate processor; "
+                                       "afterwards the fast one is fine. The CD stays as D: "
+                                       "so FDIMPLES can add more packages.");
                     }
                     else {
                         ImGui::TextWrapped("Windows 98 is installed.");
                         ImGui::Spacing();
-                        if (ImGui::Button("Start Windows 98", ImVec2(cw * 0.62f, ImGui::GetFontSize() * 2.2f))) {
+                        if (ImGui::Button("Start Windows 98", ImVec2(cw * 0.62f, ImGui::GetFontSize() * 2.4f))) {
                             w.phase = retrodos::Win98Phase::Run;
                             retrodos::win98_save(w);
-                            win_running_dir   = w.dir;
-                            win_running_phase = w.phase;
-                            win_running_os    = w.os;
-                            Game g;
-                            g.name = "Windows 98";
-                            g.dir  = w.dir;
+                            win_running_dir = w.dir; win_running_phase = w.phase; win_running_os = w.os;
+                            Game g; g.name = "Windows 98"; g.dir = w.dir;
                             g.conf_override = retrodos::win98_conf(w);
                             launch(g);
                         }
@@ -5332,42 +5078,15 @@ int main(int argc, char **argv)
                         ImGui::Checkbox("Faster processor now that Setup is done",
                                         &w.fast_core_after_install);
                         if (ImGui::IsItemDeactivatedAfterEdit()) retrodos::win98_save(w);
-                        TextDimWrapped("Setup has to run on the slow, accurate "
-                                       "processor. Afterwards the fast one is usually "
-                                       "fine, and much faster.");
-                        ImGui::Spacing();
                         ImGui::Checkbox("3dfx Voodoo graphics card", &w.voodoo);
                         if (ImGui::IsItemDeactivatedAfterEdit()) retrodos::win98_save(w);
-                        TextDimWrapped("A 3dfx Voodoo Graphics (Voodoo 1): the 3D card "
-                                       "the Glide and Direct3D games of 1996-1999 are "
-                                       "looking for. It is a 3D-only add-in card, so "
+                        TextDimWrapped("Voodoo is a 3D-only add-in card for the Glide and "
+                                       "Direct3D games of 1996-1999. It needs the 3dfx 9x "
+                                       "reference driver (3.01.00) from a floppy or CD; "
                                        "Windows lists it under 'Sound, video and game "
-                                       "controllers', never under Display adapters -- "
-                                       "until it has a driver it is 'PCI Multimedia "
-                                       "Video Device' under Other devices.");
-                        ImGui::Spacing();
-                        TextDimWrapped("It needs the 3dfx Voodoo Graphics Windows 9x "
-                                       "reference driver (3.01.00). Put it in A: from the "
-                                       "Floppies shelf, or in a drive from CDs, before "
-                                       "starting Windows; when Windows finds the PCI "
-                                       "Multimedia Video Device let it search that drive. "
-                                       "Found earlier and skipped? Device Manager > Other "
-                                       "devices > that device > Update Driver. Emulated "
-                                       "in software, so it is slow on a handheld.");
-                        ImGui::Spacing();
-                        TextDimWrapped("An add-in card, not a display adapter: Glide games "
-                                       "and Direct3D games that let you pick a 3D device "
-                                       "use it. A game that only looks at the primary "
-                                       "display for Direct3D (Sega Rally 2, and most from "
-                                       "late 1999 on) will never list it -- those need a "
-                                       "Banshee or Voodoo3-class card as the display, "
-                                       "which is what Retro-X86 provides.");
-                        ImGui::Spacing();
-                        ImGui::Separator();
-                        ImGui::Spacing();
-                        TextDimWrapped("To stop Windows asking for the CD, copy the "
-                                       "\\WIN98 folder from the disc to C: once you are "
-                                       "inside Windows.");
+                                       "controllers'. Emulated in software, so slow on a "
+                                       "handheld. To stop Windows asking for the CD, copy "
+                                       "\\WIN98 from the disc to C: once inside Windows.");
                     }
 
                     ImGui::PopTextWrapPos();

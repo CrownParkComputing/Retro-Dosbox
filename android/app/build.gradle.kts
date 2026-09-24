@@ -87,7 +87,7 @@ android {
         targetSdk = 36
         // 202. The live listing carries 201 on production, alpha and Testers
         // Community, and Play never accepts a code at or below what is there.
-        versionCode = DOSBOX_VERSION_CODE_BASE + 3
+        versionCode = DOSBOX_VERSION_CODE_BASE + 4
         versionName = "2.1"
         ndk {
             // Only the ABI the core has actually been built for. Listing more
