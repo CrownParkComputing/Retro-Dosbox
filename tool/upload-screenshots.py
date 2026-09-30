@@ -40,17 +40,29 @@ def asc(*args: str) -> tuple[int, str]:
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
 
-def set_state(loc: str, display_type: str) -> list[tuple[str, str]]:
-    """[(fileName, deliveryState)] for the set, or [] if it does not exist."""
+# Apple normalises some display types on the way in. APP_IPHONE_67 and
+# APP_IPHONE_69 accept exactly the same six dimensions, so a set created as
+# _69 comes back as _67 -- and polling for the name you sent then finds no
+# set at all, reports "0/N complete" for ever and fails a run whose uploads
+# all succeeded. Treat the pair as one.
+ALIASES = {
+    "APP_IPHONE_69": {"APP_IPHONE_69", "APP_IPHONE_67"},
+    "APP_IPHONE_67": {"APP_IPHONE_67", "APP_IPHONE_69"},
+}
+
+
+def set_state(loc: str, display_type: str) -> list[tuple[str, str]] | None:
+    """[(fileName, deliveryState)] for the set, or None if there is no set."""
     rc, out = asc("screenshots", "list", "--version-localization", loc)
     if rc != 0:
-        return []
+        return None
     try:
         data = json.loads(out)
     except json.JSONDecodeError:
-        return []
+        return None
+    wanted = ALIASES.get(display_type, {display_type})
     for s in data.get("sets", []):
-        if s["set"]["attributes"]["screenshotDisplayType"] != display_type:
+        if s["set"]["attributes"]["screenshotDisplayType"] not in wanted:
             continue
         rows = []
         for sh in s.get("screenshots", []):
@@ -58,7 +70,7 @@ def set_state(loc: str, display_type: str) -> list[tuple[str, str]]:
             state = (a.get("assetDeliveryState") or {}).get("state")
             rows.append((a.get("fileName", "?"), state))
         return rows
-    return []
+    return None
 
 
 def main(argv: list[str]) -> int:
@@ -99,6 +111,13 @@ def main(argv: list[str]) -> int:
     deadline = time.time() + POLL_TIMEOUT
     while True:
         rows = set_state(loc, display_type)
+        if rows is None:
+            print(f"  (no {display_type} set visible yet)")
+            if time.time() > deadline:
+                print(f"no {display_type} set ever appeared", file=sys.stderr)
+                return 1
+            time.sleep(POLL_INTERVAL)
+            continue
         done = [f for f, st in rows if st == "COMPLETE"]
         stuck = [(f, st) for f, st in rows if st != "COMPLETE"]
         if len(done) == len(shots) and not stuck:
