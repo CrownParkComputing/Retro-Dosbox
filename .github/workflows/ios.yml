@@ -310,59 +310,7 @@ jobs:
           APP_PATH=$(find ios/build/sim -name "$APP.app" -type d | head -1)
           [ -n "$APP_PATH" ] || { echo "::error::no $APP.app was built"; exit 1; }
           echo "app: $APP_PATH"
-
-          # Device types are named differently in every Xcode, so match rather
-          # than hardcode: a missing "iPhone 17 Pro Max" would otherwise fail
-          # the job on an Xcode bump with a message about an unknown device.
-          # Highest match wins, so this follows Xcode forward.
-          devtype() {
-            xcrun simctl list devicetypes -j | python3 -c "import json,re,sys; m=[t for t in json.load(sys.stdin)['devicetypes'] if re.search(sys.argv[1],t['name'])]; print(sorted(m,key=lambda t:t['name'])[-1]['identifier']) if m else sys.exit('no simulator device type matching '+sys.argv[1])" "$1"
-          }
-
-          capture() {   # <device-type regex> <raw dir>
-            local udid outdir="$2" i=0
-            udid=$(xcrun simctl create "shots" "$(devtype "$1")")
-            xcrun simctl boot "$udid"
-            xcrun simctl bootstatus "$udid" -b
-            # A clean status bar, and no "<- Back to ..." breadcrumb from a
-            # previous app.
-            xcrun simctl status_bar "$udid" override \
-              --time "09:41" --batteryState charged --batteryLevel 100 \
-              --wifiBars 3 --cellularBars 4
-            xcrun simctl install "$udid" "$APP_PATH"
-            mkdir -p "$outdir"
-            # RETRODOS_SHOT opens the app straight onto one screen; simctl has
-            # no tap API, so without it every capture would be the first
-            # screen. SIMCTL_CHILD_ is how an env var reaches the app.
-            for shot in wizard library demo about run; do
-              i=$((i+1))
-              xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
-              # The pid matters: simctl reports success for a launch that
-              # crashes a moment later, and the screenshot would then be of
-              # the home screen -- a green job and five useless pictures.
-              pid=$(SIMCTL_CHILD_RETRODOS_SHOT="$shot" \
-                    xcrun simctl launch "$udid" "$BUNDLE_ID" | awk -F': ' '{print $2}')
-              # "run" boots DOS and starts the demo; the rest are just a frame.
-              if [ "$shot" = run ]; then sleep 25; else sleep 10; fi
-              # Plain ps on the RUNNER, not `simctl spawn ... ps`: a
-              # simulator app is an ordinary host process, and spawn runs a
-              # host binary inside the simulator runtime, where it fails --
-              # so the first version of this check reported every launch as
-              # dead and failed the job on a perfectly good app.
-              if [ -z "$pid" ] || ! ps -p "$pid" >/dev/null 2>&1; then
-                echo "::error::the app died before the '$shot' capture (pid ${pid:-none})"
-                xcrun simctl spawn "$udid" log collect --last 2m 2>/dev/null || true
-                exit 1
-              fi
-              xcrun simctl io "$udid" screenshot "$outdir/$i-$shot.png"
-              echo "  $outdir/$i-$shot.png  $(sips -g pixelWidth -g pixelHeight "$outdir/$i-$shot.png" | tr '\n' ' ')"
-            done
-            xcrun simctl shutdown "$udid"
-            xcrun simctl delete "$udid"
-          }
-
-          capture 'iPhone .*Pro Max'  store/screenshots-raw-iphone
-          capture 'iPad Pro 13-inch'  store/screenshots-raw-ipad
+          tool/capture-screenshots.sh "$APP_PATH"
 
       - name: Size them for App Store Connect
         run: |
