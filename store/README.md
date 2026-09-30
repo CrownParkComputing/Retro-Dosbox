@@ -30,3 +30,18 @@ exact sizes App Store Connect accepts and writes `screenshots/<target>/`.
 Landscape only, because the app is: `Info.plist` declares the two landscape
 orientations and nothing else. An iPad capture must never be padded into an
 iPhone frame — the script enforces that rather than trusting the operator.
+
+`simctl` photographs the *device* framebuffer and the simulator boots
+portrait, so a landscape-only app comes out lying on its side. The script
+rotates it upright before sizing; that is why the raw files are portrait and
+the finished ones are not.
+
+Uploading — the display type must match the pixel size exactly, and
+`asc screenshots sizes --all` is the list that settles it:
+
+| Folder | `--device-type` | Size |
+|---|---|---|
+| `screenshots/ios-iphone-69-landscape` | `APP_IPHONE_69` | 2868×1320 |
+| `screenshots/ios-ipad-13-landscape` | `APP_IPAD_PRO_3GEN_129` | 2752×2064 |
+
+Both are produced native and unscaled, so nothing is padded.
