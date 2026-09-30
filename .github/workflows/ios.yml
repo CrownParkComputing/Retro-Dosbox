@@ -29,6 +29,12 @@ on:
     branches: [main]
     tags: ['ios-v*']
   workflow_dispatch:
+    inputs:
+      only:
+        description: "Which half to run"
+        type: choice
+        default: all
+        options: [all, app, screenshots]
 
 env:
   # One place that decides the identity, because the last time these were
@@ -42,6 +48,10 @@ env:
 jobs:
   # ---------------------------------------------------------------- the app
   ios:
+    # A capture that needs another attempt should not cost a signed build and
+    # a new App Store Connect upload -- the app is identical, only the
+    # screenshot job changed.
+    if: github.event_name != 'workflow_dispatch' || inputs.only != 'screenshots'
     runs-on: macos-26
     env:
       HAS_IOS_SIGNING: ${{ secrets.SIGNING_PASSPHRASE != '' && secrets.DOSDECK_PROFILE_BASE64 != '' }}
@@ -265,6 +275,7 @@ jobs:
   # device build -- and because a screenshot problem should not cost a
   # release. It signs nothing and uploads nothing to Apple.
   screenshots:
+    if: github.event_name != 'workflow_dispatch' || inputs.only != 'app'
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
@@ -333,12 +344,16 @@ jobs:
                     xcrun simctl launch "$udid" "$BUNDLE_ID" | awk -F': ' '{print $2}')
               # "run" boots DOS and starts the demo; the rest are just a frame.
               if [ "$shot" = run ]; then sleep 25; else sleep 10; fi
-              xcrun simctl spawn "$udid" ps -p "$pid" >/dev/null 2>&1 || {
-                echo "::error::the app died before the '$shot' capture (pid $pid)"
-                xcrun simctl spawn "$udid" log show --last 2m --style compact \
-                  --predicate "process == \"$APP\"" 2>/dev/null | tail -40 || true
+              # Plain ps on the RUNNER, not `simctl spawn ... ps`: a
+              # simulator app is an ordinary host process, and spawn runs a
+              # host binary inside the simulator runtime, where it fails --
+              # so the first version of this check reported every launch as
+              # dead and failed the job on a perfectly good app.
+              if [ -z "$pid" ] || ! ps -p "$pid" >/dev/null 2>&1; then
+                echo "::error::the app died before the '$shot' capture (pid ${pid:-none})"
+                xcrun simctl spawn "$udid" log collect --last 2m 2>/dev/null || true
                 exit 1
-              }
+              fi
               xcrun simctl io "$udid" screenshot "$outdir/$i-$shot.png"
               echo "  $outdir/$i-$shot.png  $(sips -g pixelWidth -g pixelHeight "$outdir/$i-$shot.png" | tr '\n' ' ')"
             done
