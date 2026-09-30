@@ -230,6 +230,14 @@ jobs:
           xcodebuild -exportArchive -archivePath "build/$APP.xcarchive" \
             -exportOptionsPlist ExportOptions.plist -exportPath build/ipa
 
+      - name: Keep the IPA
+        if: env.HAS_IOS_SIGNING == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipa
+          path: build/ipa/*.ipa
+          if-no-files-found: error
+
       - name: Upload to App Store Connect
         if: env.HAS_IOS_SIGNING == 'true'
         run: |
@@ -238,16 +246,18 @@ jobs:
           . "$D/signing.env"
           mkdir -p ~/.appstoreconnect/private_keys
           cp "$D/asc_key.p8" ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
-          xcrun altool --upload-app -f build/ipa/*.ipa -t ios \
-            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
-
-      - name: Keep the IPA
-        if: env.HAS_IOS_SIGNING == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ipa
-          path: build/ipa/*.ipa
-          if-no-files-found: error
+          # altool says "No suitable application records were found" when the
+          # App Store record for this bundle id does not exist. That is not a
+          # build problem: the record cannot be created from any API key --
+          # app creation is a web-session operation only -- so it is made once
+          # by hand and every upload afterwards works.
+          if ! xcrun altool --upload-app -f build/ipa/*.ipa -t ios \
+                 --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID" 2>&1 | tee /tmp/altool.log; then
+            if grep -qi "no suitable application record" /tmp/altool.log; then
+              echo "::error::No App Store record for $BUNDLE_ID. Create it once (asc web apps create), then re-run."
+            fi
+            exit 1
+          fi
 
   # -------------------------------------------------------- the store shots
   # A separate job because it needs a SIMULATOR slice of the core, which is a
