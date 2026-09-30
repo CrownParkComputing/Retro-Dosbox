@@ -59,3 +59,7 @@ __pycache__/
 ios/signing/*.passphrase
 ios/signing/*.decrypted
 .kotlin/
+
+# Store captures are CI artefacts, regenerated per build.
+store/screenshots/
+store/screenshots-raw-*/

@@ -52,7 +52,26 @@ SOURCES = {
 }
 
 
+def upright(img: Image.Image, size: tuple) -> Image.Image:
+    """Rotate a capture whose orientation does not match the target.
+
+    `xcrun simctl io screenshot` photographs the DEVICE framebuffer, and the
+    simulator boots portrait. A landscape-only app is rotated inside that
+    frame, so the raw file is 1320x2868 with the interface lying on its side.
+    Scaling that into a landscape target without rotating produces a legal
+    upload of a sideways app -- which is how it went unnoticed the first time.
+
+    Counter-clockwise, because the home indicator ends up on the right and the
+    camera cutout on the left: iOS landscape-left, which is what the simulator
+    rotates a landscape-only app into.
+    """
+    if (img.width < img.height) != (size[0] < size[1]):
+        return img.rotate(90, expand=True)
+    return img
+
+
 def fit(img: Image.Image, size: tuple) -> Image.Image:
+    img = upright(img, size)
     tw, th = size
     scale = min(tw / img.width, th / img.height)
     w, h = max(1, round(img.width * scale)), max(1, round(img.height * scale))
@@ -92,7 +111,7 @@ def main(argv) -> int:
         native = 0
         for shot in shots:
             img = Image.open(shot).convert("RGB")
-            if img.size == size:
+            if upright(img, size).size == size:
                 native += 1
             fit(img, size).save(out / shot.name)
         print(

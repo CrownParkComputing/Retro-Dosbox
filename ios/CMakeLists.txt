@@ -52,10 +52,31 @@ foreach(lib libretrodos.a libSDL3.a)
 endforeach()
 
 # The demo content the frontend looks for as demo/DEMO.COM and
-# demo/FREEDOS.IMG, relative to the bundle. It lives under android/ because
-# that is where it was first packaged; it is read here, never modified.
+# demo/FREEDOS.IMG, relative to the bundle. FREEDOS.IMG lives under android/
+# because that is where it was first packaged; it is read here, never
+# modified.
 set(DEMO_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../android/app/src/main/assets/demo")
-set(DEMO_FILES "${DEMO_SRC}/DEMO.COM" "${DEMO_SRC}/FREEDOS.IMG")
+
+# DEMO.COM is BUILT here rather than copied, because its banner names the app
+# and the committed copy names the Android one. The review notes send the
+# reviewer to the Demo page as the fastest way to see the app work, so that
+# banner is very likely the first text they read -- and it used to greet them
+# with "Retro-DOS", which is the leftover guideline 4.3 reads as one app
+# submitted twice. Android keeps the committed 354-byte file untouched;
+# make_demo.py defaults to Retro-DOS precisely so that stays byte-identical.
+set(DEMO_COM "${CMAKE_CURRENT_BINARY_DIR}/bundle/demo/DEMO.COM")
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+execute_process(
+  COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/../demo/make_demo.py"
+          "${DEMO_COM}" --name "${RETRODOS_APP_NAME}"
+  RESULT_VARIABLE demo_rc OUTPUT_VARIABLE demo_out ERROR_VARIABLE demo_out)
+if(NOT demo_rc EQUAL 0)
+  message(FATAL_ERROR "could not build DEMO.COM: ${demo_out}")
+endif()
+message(STATUS "demo: ${demo_out}")
+
+set(DEMO_FILES "${DEMO_COM}" "${DEMO_SRC}/FREEDOS.IMG")
 
 # The interface assets: the UI font and the wordmark. They go into the bundle
 # under assets/ui/, which is exactly the path retrodos_brand.cpp asks

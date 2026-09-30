@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Build DEMO.COM -- the bundled Retro-DOS demonstration program.
+Build DEMO.COM -- the bundled demonstration program.
 
 WHY THIS EXISTS
 ---------------
@@ -23,9 +23,10 @@ This script IS the source: the byte encodings are written out explicitly and
 the two-pass label resolution below removes the hand-arithmetic that makes
 hand-assembly unreliable.
 
-Usage:  python3 make_demo.py [output.com]
+Usage:  python3 make_demo.py [output.com] [--name DOSDeck]
 """
 
+import argparse
 import struct
 import sys
 
@@ -78,7 +79,7 @@ class Asm:
         return bytes(self.buf)
 
 
-def build():
+def build(name="Retro-DOS"):
     a = Asm()
 
     # ---- text splash -------------------------------------------------
@@ -159,9 +160,14 @@ def build():
 
     # ---- data --------------------------------------------------------
     a.label("msg")
+    # The banner names the APP, and the app is not the same on every platform:
+    # Android ships as Retro-DOS, iOS as DOSDeck. It was hardcoded to Retro-DOS
+    # and so the iOS demo -- the very first thing an App Review reviewer is
+    # told to tap -- introduced itself as the Android app. That is exactly the
+    # leftover guideline 4.3 reads as one app submitted twice.
     text = ("\r\n"
-            "  Retro-DOS\r\n"
-            "  ---------\r\n"
+            f"  {name}\r\n"
+            f"  {'-' * len(name)}\r\n"
             "  DOSBox-X core, SDL3 frontend.\r\n\r\n"
             "  This is the built-in demo, shown because no games\r\n"
             "  were found. Add your DOS games from the library\r\n"
@@ -174,8 +180,17 @@ def build():
 
 
 if __name__ == "__main__":
-    out = sys.argv[1] if len(sys.argv) > 1 else "DEMO.COM"
-    data = build()
-    with open(out, "wb") as f:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("output", nargs="?", default="DEMO.COM")
+    # Defaults to Retro-DOS so the committed Android asset stays byte-identical
+    # unless someone asks for a different name.
+    ap.add_argument("--name", default="Retro-DOS",
+                    help="the app name the banner announces (default: Retro-DOS)")
+    args = ap.parse_args()
+    if not args.name.isascii():
+        raise SystemExit("--name must be ASCII: it is written into a DOS text buffer")
+    data = build(args.name)
+    with open(args.output, "wb") as f:
         f.write(data)
-    print(f"wrote {out}: {len(data)} bytes")
+    print(f"wrote {args.output}: {len(data)} bytes  (banner: {args.name})")
