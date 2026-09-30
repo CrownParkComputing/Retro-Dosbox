@@ -316,10 +316,19 @@ jobs:
             for shot in wizard library demo about run; do
               i=$((i+1))
               xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
-              SIMCTL_CHILD_RETRODOS_SHOT="$shot" \
-                xcrun simctl launch "$udid" "$BUNDLE_ID"
+              # The pid matters: simctl reports success for a launch that
+              # crashes a moment later, and the screenshot would then be of
+              # the home screen -- a green job and five useless pictures.
+              pid=$(SIMCTL_CHILD_RETRODOS_SHOT="$shot" \
+                    xcrun simctl launch "$udid" "$BUNDLE_ID" | awk -F': ' '{print $2}')
               # "run" boots DOS and starts the demo; the rest are just a frame.
-              if [ "$shot" = run ]; then sleep 20; else sleep 8; fi
+              if [ "$shot" = run ]; then sleep 25; else sleep 10; fi
+              xcrun simctl spawn "$udid" ps -p "$pid" >/dev/null 2>&1 || {
+                echo "::error::the app died before the '$shot' capture (pid $pid)"
+                xcrun simctl spawn "$udid" log show --last 2m --style compact \
+                  --predicate "process == \"$APP\"" 2>/dev/null | tail -40 || true
+                exit 1
+              }
               xcrun simctl io "$udid" screenshot "$outdir/$i-$shot.png"
               echo "  $outdir/$i-$shot.png  $(sips -g pixelWidth -g pixelHeight "$outdir/$i-$shot.png" | tr '\n' ' ')"
             done
