@@ -5,12 +5,24 @@ name: iOS
 # up in App Store Connect by hand and gives nothing back here that this does
 # not already do.
 #
-# ONE secret: SIGNING_PASSPHRASE. The certificate, the provisioning profile,
-# the App Store Connect key and the passwords all live in ios/signing/*.enc,
-# encrypted with it. See ios/signing/README.md.
+# THE APP BUILT HERE IS "DOSDeck", NOT RETRO-DOS.
+# Apple rejected the Retro-* family under guideline 4.3 -- several apps from
+# one developer, too alike. The answer was not a rename but a separate app:
+# its own name, icon, bundle identifier, listing and artwork, sharing only the
+# GPL engine underneath. Android keeps Retro-DOS and its own signing key.
 #
-# Gated on that secret being set, so a fork without it still builds -- and a
-# broken tree therefore still fails loudly rather than waiting to be noticed.
+# SIGNING MATERIAL COMES FROM TWO PLACES, and that is deliberate rather than
+# untidy. The certificate, the App Store Connect key and the passwords live in
+# ios/signing/*.enc behind the single secret SIGNING_PASSPHRASE. The PROFILE
+# does not: DOSDeck's bundle id is new, so its profile post-dates that bundle
+# and could not be re-encrypted without the passphrase, which is not in the
+# repository and must never be. It is its own secret instead.
+#
+#   SIGNING_PASSPHRASE      unlocks ios/signing/*.enc  (cert + ASC key)
+#   DOSDECK_PROFILE_BASE64  the "DOSDeck AppStore" provisioning profile
+#
+# Gated on the passphrase being set, so a fork without it still builds -- and
+# a broken tree therefore still fails loudly rather than waiting to be noticed.
 
 on:
   push:
@@ -18,14 +30,21 @@ on:
     tags: ['ios-v*']
   workflow_dispatch:
 
+env:
+  # One place that decides the identity, because the last time these were
+  # spelled out per-step the project was renamed and the workflow kept
+  # building "RetroDos" against a bundle id that no longer existed.
+  APP: DOSDeck
+  BUNDLE_ID: com.crownparkcomputing.dosdeck
+  TEAM_ID: 88A3T9K9C5
+  PROFILE_NAME: DOSDeck AppStore
+
 jobs:
+  # ---------------------------------------------------------------- the app
   ios:
     runs-on: macos-26
     env:
-      HAS_IOS_SIGNING: ${{ secrets.SIGNING_PASSPHRASE != '' }}
-      BUNDLE_ID: com.crownparkcomputing.dosboxretro
-      TEAM_ID: 88A3T9K9C5
-      PROFILE_NAME: Retro-Dosbox AppStore
+      HAS_IOS_SIGNING: ${{ secrets.SIGNING_PASSPHRASE != '' && secrets.DOSDECK_PROFILE_BASE64 != '' }}
 
     steps:
       # The core is a submodule and nothing builds without it. ios/build-core.sh
@@ -49,16 +68,34 @@ jobs:
         if: env.HAS_IOS_SIGNING == 'true'
         env:
           PASS: ${{ secrets.SIGNING_PASSPHRASE }}
+          PROFILE_B64: ${{ secrets.DOSDECK_PROFILE_BASE64 }}
         run: |
           set -euo pipefail
           D="$RUNNER_TEMP/signing"; mkdir -p "$D"; chmod 700 "$D"
           dec() { openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
                     -in "ios/signing/$1" -out "$D/$2" -pass env:PASS; }
           dec dist.p12.enc                dist.p12
-          dec profile.mobileprovision.enc profile.mobileprovision
           dec asc_key.p8.enc              asc_key.p8
           dec signing.env.enc             signing.env
+          # The profile is a secret of its own -- see the header.
+          printf '%s' "$PROFILE_B64" | base64 --decode > "$D/profile.mobileprovision"
           echo "D=$D" >> "$GITHUB_ENV"
+
+      # The profile in the secret must be the profile the export expects, and
+      # it must be for THIS bundle id. Getting this wrong produces a signed
+      # archive that fails at -exportArchive with a message about entitlements
+      # that does not name the mismatch.
+      - name: Check the profile matches the app
+        if: env.HAS_IOS_SIGNING == 'true'
+        run: |
+          set -euo pipefail
+          plist=$(security cms -D -i "$D/profile.mobileprovision")
+          name=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<<"$plist")
+          appid=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin <<<"$plist")
+          echo "profile: $name"
+          echo "app id : $appid"
+          [ "$name"  = "$PROFILE_NAME" ]            || { echo "::error::profile is '$name', expected '$PROFILE_NAME'"; exit 1; }
+          [ "$appid" = "$TEAM_ID.$BUNDLE_ID" ]      || { echo "::error::profile is for $appid, expected $TEAM_ID.$BUNDLE_ID"; exit 1; }
 
       - name: Import signing certificate
         if: env.HAS_IOS_SIGNING == 'true'
@@ -113,16 +150,16 @@ jobs:
         run: |
           set -euo pipefail
           xcodebuild archive \
-            -project ios/build/app/RetroDos.xcodeproj -scheme RetroDos \
+            -project "ios/build/app/$APP.xcodeproj" -scheme "$APP" \
             -configuration Release -destination 'generic/platform=iOS' \
-            -archivePath build/RetroDos.xcarchive
+            -archivePath "build/$APP.xcarchive"
 
       # Unsigned builds still have to compile and produce a bundle, or a broken
       # tree goes unnoticed until someone adds the secrets.
       - name: Build (unsigned, no secrets configured)
         if: env.HAS_IOS_SIGNING != 'true'
         run: |
-          xcodebuild -project ios/build/app/RetroDos.xcodeproj -scheme RetroDos \
+          xcodebuild -project "ios/build/app/$APP.xcodeproj" -scheme "$APP" \
             -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
 
@@ -134,7 +171,8 @@ jobs:
         if: env.HAS_IOS_SIGNING == 'true'
         run: |
           set -euo pipefail
-          plist=build/RetroDos.xcarchive/Products/Applications/RetroDos.app/Info.plist
+          app="build/$APP.xcarchive/Products/Applications/$APP.app"
+          plist="$app/Info.plist"
           need() {
             /usr/bin/plutil -extract "$1" raw -o - "$plist" >/dev/null 2>&1 \
               || { echo "::error::$1 is missing from the built bundle"; exit 1; }
@@ -142,13 +180,22 @@ jobs:
           need CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName
           need ITSAppUsesNonExemptEncryption
 
+          # The shipped app must not still call itself Retro-DOS anywhere a
+          # reviewer can see: that leftover is precisely what guideline 4.3
+          # reads as one app submitted twice.
+          for key in CFBundleDisplayName CFBundleName; do
+            v=$(/usr/bin/plutil -extract "$key" raw -o - "$plist")
+            echo "  $key = $v"
+            case "$v" in *Retro*) echo "::error::$key is '$v'"; exit 1 ;; esac
+          done
+
           # Purpose strings, derived from what the BINARY links rather than from
           # a list somebody remembered to update. A bundle that links a
           # protected API needs the string whether or not it calls it, and
           # Apple reports the lack only after a delivery that reported success
           # -- ITMS-90683, by email, hours later, with the job green. That is
           # how the first 2.0 upload was lost.
-          bin=build/RetroDos.xcarchive/Products/Applications/RetroDos.app/RetroDos
+          bin="$app/$APP"
           check_api() {   # <objc class> <Info.plist key>
             if nm -u "$bin" 2>/dev/null | grep -q "$1"; then
               need "$2"
@@ -180,7 +227,7 @@ jobs:
             <key>uploadSymbols</key><true/>
           </dict></plist>
           PLIST
-          xcodebuild -exportArchive -archivePath build/RetroDos.xcarchive \
+          xcodebuild -exportArchive -archivePath "build/$APP.xcarchive" \
             -exportOptionsPlist ExportOptions.plist -exportPath build/ipa
 
       - name: Upload to App Store Connect
@@ -193,3 +240,107 @@ jobs:
           cp "$D/asc_key.p8" ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
           xcrun altool --upload-app -f build/ipa/*.ipa -t ios \
             --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+
+      - name: Keep the IPA
+        if: env.HAS_IOS_SIGNING == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipa
+          path: build/ipa/*.ipa
+          if-no-files-found: error
+
+  # -------------------------------------------------------- the store shots
+  # A separate job because it needs a SIMULATOR slice of the core, which is a
+  # different configured tree with a different SDK -- not another arch of the
+  # device build -- and because a screenshot problem should not cost a
+  # release. It signs nothing and uploads nothing to Apple.
+  screenshots:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Build tools
+        run: |
+          brew install autoconf automake libtool cmake
+          python3 -m pip install --break-system-packages --quiet pillow
+
+      - name: Build the core and frontend (simulator)
+        run: IOS_PLATFORM=iphonesimulator ./ios/build-core.sh
+
+      - name: Build the app (simulator, unsigned)
+        run: |
+          set -euo pipefail
+          cmake -S ios -B ios/build/sim -G Xcode \
+            -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DRETRODOS_LIB_PLATFORM=iphonesimulator \
+            -DRETRODOS_BUNDLE_ID="$BUNDLE_ID" -DRETRODOS_TEAM_ID="$TEAM_ID"
+          xcodebuild -project "ios/build/sim/$APP.xcodeproj" -scheme "$APP" \
+            -configuration Release -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
+      - name: Capture
+        run: |
+          set -euo pipefail
+          APP_PATH=$(find ios/build/sim -name "$APP.app" -type d | head -1)
+          [ -n "$APP_PATH" ] || { echo "::error::no $APP.app was built"; exit 1; }
+          echo "app: $APP_PATH"
+
+          # Device types are named differently in every Xcode, so match rather
+          # than hardcode: a missing "iPhone 17 Pro Max" would otherwise fail
+          # the job on an Xcode bump with a message about an unknown device.
+          # Highest match wins, so this follows Xcode forward.
+          devtype() {
+            xcrun simctl list devicetypes -j | python3 -c "import json,re,sys; m=[t for t in json.load(sys.stdin)['devicetypes'] if re.search(sys.argv[1],t['name'])]; print(sorted(m,key=lambda t:t['name'])[-1]['identifier']) if m else sys.exit('no simulator device type matching '+sys.argv[1])" "$1"
+          }
+
+          capture() {   # <device-type regex> <raw dir>
+            local udid outdir="$2" i=0
+            udid=$(xcrun simctl create "shots" "$(devtype "$1")")
+            xcrun simctl boot "$udid"
+            xcrun simctl bootstatus "$udid" -b
+            # A clean status bar, and no "<- Back to ..." breadcrumb from a
+            # previous app.
+            xcrun simctl status_bar "$udid" override \
+              --time "09:41" --batteryState charged --batteryLevel 100 \
+              --wifiBars 3 --cellularBars 4
+            xcrun simctl install "$udid" "$APP_PATH"
+            mkdir -p "$outdir"
+            # RETRODOS_SHOT opens the app straight onto one screen; simctl has
+            # no tap API, so without it every capture would be the first
+            # screen. SIMCTL_CHILD_ is how an env var reaches the app.
+            for shot in wizard library demo about run; do
+              i=$((i+1))
+              xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
+              SIMCTL_CHILD_RETRODOS_SHOT="$shot" \
+                xcrun simctl launch "$udid" "$BUNDLE_ID"
+              # "run" boots DOS and starts the demo; the rest are just a frame.
+              if [ "$shot" = run ]; then sleep 20; else sleep 8; fi
+              xcrun simctl io "$udid" screenshot "$outdir/$i-$shot.png"
+              echo "  $outdir/$i-$shot.png  $(sips -g pixelWidth -g pixelHeight "$outdir/$i-$shot.png" | tr '\n' ' ')"
+            done
+            xcrun simctl shutdown "$udid"
+            xcrun simctl delete "$udid"
+          }
+
+          capture 'iPhone .*Pro Max'  store/screenshots-raw-iphone
+          capture 'iPad Pro 13-inch'  store/screenshots-raw-ipad
+
+      - name: Size them for App Store Connect
+        run: |
+          set -euo pipefail
+          tool/make-store-screenshots.py store/screenshots-raw-iphone
+          tool/make-store-screenshots.py store/screenshots-raw-ipad
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: |
+            store/screenshots
+            store/screenshots-raw-iphone
+            store/screenshots-raw-ipad
+          if-no-files-found: error

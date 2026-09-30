@@ -28,11 +28,11 @@
 	     this app does not use but still links. Verified with
 	     `nm -u` on the built binary, not assumed. -->
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Retro-DOS uses Bluetooth only to connect game controllers. It collects no data and never scans for anything else.</string>
+	<string>DOSDeck uses Bluetooth only to connect game controllers. It collects no data and never scans for anything else.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Retro-DOS does not use the camera. This entry is required because the SDL library the app is built on links Apple's camera APIs, and iOS asks for the description whether or not they are ever called.</string>
+	<string>DOSDeck does not use the camera. This entry is required because the SDL library the app is built on links Apple's camera APIs, and iOS asks for the description whether or not they are ever called.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Retro-DOS does not record audio. This entry is required because the SDL library the app is built on links Apple's audio-recording APIs, and iOS asks for the description whether or not they are ever called.</string>
+	<string>DOSDeck does not record audio. This entry is required because the SDL library the app is built on links Apple's audio-recording APIs, and iOS asks for the description whether or not they are ever called.</string>
 
 	<key>ITSAppUsesNonExemptEncryption</key><false/>
 

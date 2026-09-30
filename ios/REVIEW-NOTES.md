@@ -1,4 +1,4 @@
-# Autoexec — App Review notes
+# DOSDeck — App Review notes
 
 Paste the whole of this into **Review Notes** on **every** submission, not just
 the first. App Review bounces an emulator submission that arrives without the
@@ -8,7 +8,7 @@ the first. App Review bounces an emulator submission that arrives without the
 
 ## What this app is
 
-Autoexec is a DOS emulator for iPhone and iPad. The emulation is
+DOSDeck is a DOS emulator for iPhone and iPad. The emulation is
 [DOSBox-X](https://github.com/joncampbell123/dosbox-x), GNU GPL v2, used
 unmodified in every respect that matters to the emulation; the interface around
 it is ours. The app credits DOSBox-X on its first screen, under the name, and

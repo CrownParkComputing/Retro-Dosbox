@@ -144,7 +144,7 @@ FE="$BUILD/frontend"; mkdir -p "$FE"
 # compiled into the same library for every app built from this tree -- so they
 # are set HERE as well as on the Xcode target, or the library keeps the default
 # and the running app calls itself Retro-DOS while its icon says otherwise.
-APP_NAME="${APP_NAME:-Autoexec}"
+APP_NAME="${APP_NAME:-DOSDeck}"
 APP_CORE="${APP_CORE:-DOSBox-X}"
 FE_FLAGS="$IOS_CFLAGS -std=gnu++17 -I$CORE/include -I$APP/frontend/imgui -I$SDL3_PREFIX/include"
 for src in "$APP"/frontend/*.cpp "$APP"/frontend/imgui/*.cpp; do
@@ -213,8 +213,15 @@ cp -f "$SDL3_PREFIX/lib/libSDL3.a" "$OUT/"
 # DOSBox-X's networking is IPX over UDP, the NE2000 card over libpcap or
 # libslirp, and a "null modem" serial port over TCP. All of it is off above.
 echo "==> checking the library imports nothing that can reach a network"
+# WHOLE symbols, via -x on the extracted name. The first version of this
+# grepped -oE '..._(bind|...)$' over the raw nm output, which matches the TAIL
+# of any symbol: the PC-98 sound boards export fmboard_bind, pcm86io_bind,
+# board86_bind, rhythm_bind and a dozen more, and every one of them was
+# reported as the socket call "bind". That false positive failed this build on
+# every run from 2026-09-16 to 2026-09-24 and is why the app never shipped.
 BAD=$(nm -u "$OUT/libretrodos.a" 2>/dev/null \
-      | grep -oE '_(socket|connect|bind|listen|accept|getaddrinfo|gethostbyname|sendto|recvfrom|pcap_[a-z_]+)$' \
+      | awk '{print $NF}' \
+      | grep -xE '_(socket|connect|bind|listen|accept|getaddrinfo|gethostbyname|sendto|recvfrom|pcap_[a-z_]+)' \
       | sort -u || true)
 if [ -n "$BAD" ]; then
     echo "error: this build can reach the network, and an App Store build must not:" >&2

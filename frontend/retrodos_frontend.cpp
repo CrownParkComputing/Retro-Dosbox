@@ -2499,6 +2499,41 @@ int main(int argc, char **argv)
         view = View::Emulator;
     };
 
+    /* ---- Opening straight onto one screen, for the store captures --------
+     *
+     * simctl can install an app and launch it but cannot tap it, so a capture
+     * run has no way to reach any screen behind the first one. RETRODOS_SHOT
+     * names the screen to open on; .github/workflows/ios.yml sets it through
+     * SIMCTL_CHILD_RETRODOS_SHOT and photographs each in turn.
+     *
+     * An environment variable rather than a build flag, deliberately: the
+     * binary that is photographed is then the same binary that is submitted.
+     * It is inert in the shipped app because nothing can set an environment
+     * variable for an App Store app on a device -- and it reads one variable
+     * that does not exist, which is not a "hidden feature" under 5.6: it
+     * unlocks nothing that the navigation rail does not already reach.
+     */
+    if (const char *shot = SDL_getenv("RETRODOS_SHOT")) {
+        const std::string want(shot);
+        if (want == "wizard") {
+            view = View::Wizard;          /* the first-run walkthrough */
+        } else {
+            /* Everything else is a Shell page, and a fresh install would
+             * otherwise open the wizard over the top of it. */
+            view = View::Shell;
+            if      (want == "library")  page = Page::Library;
+            else if (want == "demo")     page = Page::Demo;
+            else if (want == "settings") page = Page::Settings;
+            else if (want == "about")    page = Page::About;
+            else if (want == "run")
+                /* The one screenshot that has to show the emulator actually
+                 * emulating. Handed to the pending-launch path immediately
+                 * below rather than calling launch() here, so a capture takes
+                 * exactly the same route into the engine as a real start. */
+                cfg.pending_launch = retrodos::demo_title(retrodos::DemoKind::Demo);
+        }
+    }
+
     /* Auto-launch after a phoenix restart. Cleared and SAVED before the
      * launch, so a game that kills the process cannot restart-loop the app --
      * the second time round the note is simply gone. */
@@ -5175,7 +5210,7 @@ int main(int argc, char **argv)
                 else if (page == Page::About) {
                     ImGui::TextUnformatted("About");
                     ImGui::Separator();
-                    ImGui::TextWrapped("Retro-DOS");
+                    ImGui::TextWrapped(RETRODOS_APP_NAME);
                     ImGui::TextDisabled("DOSBox-X core on SDL3, with a Dear ImGui frontend.");
                     ImGui::Spacing();
                     ImGui::TextWrapped("Games are mounted as folders, so each title runs from "

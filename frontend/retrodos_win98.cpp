@@ -1,4 +1,5 @@
 #include "retrodos_win98.h"
+#include "retrodos_brand.h"
 
 #include <SDL3/SDL.h>
 
@@ -797,7 +798,7 @@ bool win98_save(const Win98Install &w)
     if (w.dir.empty()) return false;
     SDL_CreateDirectory(w.dir.c_str());
 
-    std::string s = std::string("# Retro-DOS: ") + os_name(w.os) + " machine\n";
+    std::string s = std::string("# " RETRODOS_APP_NAME ": ") + os_name(w.os) + " machine\n";
     s += std::string("os=") + (w.os == OsKind::FreeDos ? "freedos" : "win98") + "\n";
     s += "phase=" + std::to_string((int)w.phase) + "\n";
     s += "iso=" + w.iso + "\n";

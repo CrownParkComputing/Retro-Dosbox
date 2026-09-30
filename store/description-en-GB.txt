@@ -7,7 +7,7 @@ TWO WAYS TO RUN DOS
 Use the built-in DOS, which starts fastest and mounts your games folder as drive C:, or boot the bundled FreeDOS 1.3 for software that wants a genuine DOS kernel underneath it. Both are free software. Neither is MS-DOS.
 
 RUN YOUR GAMES
-Put each game in its own folder inside Retro-DOS in the Files app, and it appears in the library. EXE and COM programs, floppy images and ISO/CUE discs all work.
+Put each game in its own folder inside DOSDeck in the Files app, and it appears in the library. EXE and COM programs, floppy images and ISO/CUE discs all work.
 
 AUTHENTIC SOUND AND PICTURE
 Sound Blaster, Gravis Ultrasound and PC speaker audio, EGA/VGA/SVGA graphics, and cycle control from an original 8088 up to a fast 486.

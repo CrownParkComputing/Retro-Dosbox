@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Icon and wordmark for Autoexec, the iOS app.
+"""Icon and wordmark for DOSDeck, the iOS app.
 
-    python3 tool/make_autoexec_art.py
+    python3 tool/make_dosdeck_art.py
 
 DELIBERATELY SHARES NO ARTWORK WITH THE RETRO-* FAMILY.
 
@@ -11,11 +11,11 @@ mark below that -- so that "the whole family sits together on a home screen and
 reads as one set". That is a good goal and it is exactly what Apple rejected the
 family for under guideline 4.3: several apps from one developer, too alike.
 
-So Autoexec does not use any of it. No Retro script, no blue chrome, no shared
-composition. What it uses instead is the thing it is named after: the line DOS
-runs when it starts. An amber phosphor screen, a prompt, and the name being
-typed at it. Nobody looking at the two icons would take one for a version of
-the other, which is the whole point.
+So DOSDeck does not use any of it. No Retro script, no blue chrome, no shared
+composition. What it uses instead is the thing the app actually is: a DOS
+prompt. An amber phosphor screen, a C:\\> and the name typed at it. Nobody
+looking at the two icons would take one for a version of the other, which is
+the whole point.
 
 The name credits nothing by itself, so the app says "powered by DOSBox-X" under
 the wordmark on its first screen -- in the interface, where it can be read, not
@@ -37,6 +37,11 @@ MONO_CANDIDATES = [
 MONO = next((f for f in MONO_CANDIDATES if os.path.exists(f)), None)
 if MONO is None:
     raise SystemExit("no bold mono found; looked for:\n  " + "\n  ".join(MONO_CANDIDATES))
+
+# The name, in the one place that decides it. The icon and the wordmark both
+# read it, so they cannot drift apart -- which is exactly what happened while
+# this app was still called Autoexec and only half the references moved.
+APP_NAME = "DOSDECK"
 
 SIZE = 1024
 
@@ -154,12 +159,15 @@ def ImageEval_invert(mask):
 
 
 def icon():
-    # Three lines, because one word floating in the middle is a logo and this
-    # is meant to look like a machine that has just been switched on.
+    # Two lines, because one word floating in the middle is a logo and this is
+    # meant to look like a machine that has just been switched on. The old
+    # three-line form spelled a filename (AUTOEXEC / .BAT); this one is a name
+    # typed at a prompt, so the prompt gets its own line and the name gets the
+    # size that buys.
     return screen(SIZE,
-                  ["C:\\>TYPE", "AUTOEXEC", ".BAT"],
-                  cursor_after=2,
-                  font_px=round(SIZE * 0.20))
+                  ["C:\\>", APP_NAME],
+                  cursor_after=1,
+                  font_px=round(SIZE * 0.22))
 
 
 def wordmark(width=560):
@@ -170,17 +178,17 @@ def wordmark(width=560):
     pad = round(width * 0.06)
     # Two cells spare: the cursor sits after the name and is easy to lose off
     # the end, which is the one character that has to be there.
-    font, font_px = fit_font(["C:\\>AUTOEXEC"], width - pad * 2, 2.0,
+    font, font_px = fit_font(["C:\\>" + APP_NAME], width - pad * 2, 2.0,
                              round(h * 0.42))
     prompt = glowing_text("C:\\>", font, AMBER_DIM, round(font_px * 0.10))
-    name = glowing_text("AUTOEXEC", font, AMBER, round(font_px * 0.10))
+    name = glowing_text(APP_NAME, font, AMBER, round(font_px * 0.10))
 
     y = (h - font_px) // 2
     img.alpha_composite(prompt, (pad - round(font_px * 0.3), y - round(font_px * 0.3)))
     x = pad + round(ImageDraw.Draw(img).textlength("C:\\>", font=font))
     img.alpha_composite(name, (x - round(font_px * 0.3), y - round(font_px * 0.3)))
 
-    x += round(ImageDraw.Draw(img).textlength("AUTOEXEC", font=font) + font_px * 0.2)
+    x += round(ImageDraw.Draw(img).textlength(APP_NAME, font=font) + font_px * 0.2)
     cur = Image.new("RGBA", (round(font_px * 0.60), round(font_px * 1.02)),
                     CURSOR + (255,))
     img.alpha_composite(cur, (x, y))
@@ -222,7 +230,7 @@ def main():
     print("icons: %d sizes -> %s" % (len(IOS_SIZES), out))
 
     mark = wordmark()
-    dest = os.path.join(HERE, "assets", "ui", "wordmark-autoexec.png")
+    dest = os.path.join(HERE, "assets", "ui", "wordmark-dosdeck.png")
     mark.save(dest)
     print("wordmark: %dx%d -> %s" % (mark.size[0], mark.size[1], dest))
 

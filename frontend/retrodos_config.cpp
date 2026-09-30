@@ -1,4 +1,5 @@
 #include "retrodos_config.h"
+#include "retrodos_brand.h"
 
 #include <SDL3/SDL.h>
 
@@ -236,7 +237,7 @@ bool load_app_config(const std::string &path, AppConfig &out)
 
 bool save_app_config(const std::string &path, const AppConfig &cfg)
 {
-    std::string s = "# Retro-DOS settings\n";
+    std::string s = "# " RETRODOS_APP_NAME " settings\n";
     if (!cfg.storage_root.empty()) s += "storage_root=" + cfg.storage_root + "\n";
     s += "library_root=" + cfg.library_root + "\n";
     if (!cfg.iso_root.empty()) s += "iso_root=" + cfg.iso_root + "\n";
