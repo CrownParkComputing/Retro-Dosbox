@@ -158,16 +158,92 @@ def ImageEval_invert(mask):
     return ImageOps.invert(mask)
 
 
+def rounded_card(size, radius, fill_top, fill_bottom, border=None, border_w=3):
+    """One card of the deck: a rounded screen with a vertical gradient."""
+    w, h = size
+    card = vertical_gradient((w, h), fill_top, fill_bottom)
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, w - 1, h - 1), radius=radius, fill=255)
+    card.putalpha(mask)
+    if border:
+        d = ImageDraw.Draw(card)
+        d.rounded_rectangle((border_w // 2, border_w // 2,
+                             w - 1 - border_w // 2, h - 1 - border_w // 2),
+                            radius=radius, outline=border + (255,), width=border_w)
+    return card
+
+
 def icon():
-    # Two lines, because one word floating in the middle is a logo and this is
-    # meant to look like a machine that has just been switched on. The old
-    # three-line form spelled a filename (AUTOEXEC / .BAT); this one is a name
-    # typed at a prompt, so the prompt gets its own line and the name gets the
-    # size that buys.
-    return screen(SIZE,
-                  ["C:\\>", APP_NAME],
-                  cursor_after=1,
-                  font_px=round(SIZE * 0.22))
+    """A DECK of screens, with a DOS prompt on the one in front.
+
+    The previous mark just set the name in type on a screen. It read at 180px
+    and turned to mush at 40, because seven letters cannot survive that -- and
+    it said nothing the wordmark was not already saying better.
+
+    This one is a shape first: three screens stacked and offset, which is the
+    name, and an amber C:\\> with a block cursor on the front one, which is
+    what the app is. The stack survives being shrunk; the prompt is four
+    characters rather than seven and stays legible a long way down.
+
+    Still no Retro script, no blue chrome, no family composition -- the reason
+    that matters is in the module docstring.
+    """
+    w = h = SIZE
+    img = vertical_gradient((w, h), (10, 8, 4), (4, 3, 2))
+
+    # Card geometry. The front card is a 4:3 screen; the two behind it are the
+    # same card stepped up and to the right, so the stack reads as depth
+    # rather than as three separate objects.
+    cw, ch = round(w * 0.62), round(h * 0.47)
+    radius = round(cw * 0.07)
+    step_x, step_y = round(w * 0.055), round(h * 0.062)
+    # Centred on the whole stack, not on the front card alone.
+    x0 = (w - cw - step_x * 2) // 2
+    y0 = (h - ch - step_y * 2) // 2 + step_y * 2
+
+    # Back to front, dimmest first.
+    for i in (2, 1):
+        k = 0.55 if i == 2 else 0.80
+        back = rounded_card(
+            (cw, ch), radius,
+            tuple(round(c * k) for c in (26, 18, 6)),
+            tuple(round(c * k) for c in (10, 7, 3)),
+            border=tuple(round(c * k) for c in AMBER_DIM), border_w=max(2, SIZE // 200))
+        img.alpha_composite(back, (x0 + step_x * i, y0 - step_y * i))
+
+    # The front card is a real screen: gradient, type, scanlines, border.
+    front = rounded_card((cw, ch), radius, SCREEN_TOP, SCREEN_BOTTOM)
+    pad = round(cw * 0.11)
+    font, font_px = fit_font(["C:\\>"], cw - pad * 2, 1.6, round(ch * 0.46))
+    prompt = glowing_text("C:\\>", font, AMBER, max(2, round(font_px * 0.10)))
+    ty = (ch - font_px) // 2
+    front.alpha_composite(prompt, (pad - round(font_px * 0.3), ty - round(font_px * 0.3)))
+
+    adv = ImageDraw.Draw(front).textlength("C:\\>", font=font)
+    cur = Image.new("RGBA", (round(font_px * 0.58), round(font_px * 1.02)),
+                    CURSOR + (255,))
+    cur_glow = cur.copy().filter(ImageFilter.GaussianBlur(font_px * 0.09))
+    cx = pad + round(adv) + round(font_px * 0.18)
+    front.alpha_composite(cur_glow, (cx, ty))
+    front.alpha_composite(cur, (cx, ty))
+
+    front = scanlines(front, max(2, round(ch / 44)), 40)
+    # scanlines() pastes an opaque layer, so restore the rounded corners.
+    fmask = Image.new("L", (cw, ch), 0)
+    ImageDraw.Draw(fmask).rounded_rectangle((0, 0, cw - 1, ch - 1), radius=radius, fill=255)
+    front.putalpha(fmask)
+    bw = max(2, SIZE // 200)
+    ImageDraw.Draw(front).rounded_rectangle(
+        (bw // 2, bw // 2, cw - 1 - bw // 2, ch - 1 - bw // 2),
+        radius=radius, outline=AMBER_DIM + (255,), width=bw)
+    img.alpha_composite(front, (x0, y0))
+
+    # A tube is brighter in the middle.
+    vign = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(vign).ellipse((-w * 0.25, -h * 0.25, w * 1.25, h * 1.25), fill=255)
+    vign = vign.filter(ImageFilter.GaussianBlur(w * 0.12))
+    img.paste(Image.new("RGBA", (w, h), (0, 0, 0, 110)), (0, 0), ImageEval_invert(vign))
+    return img
 
 
 def wordmark(width=560):

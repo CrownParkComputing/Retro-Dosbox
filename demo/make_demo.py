@@ -27,6 +27,7 @@ Usage:  python3 make_demo.py [output.com] [--name DOSDeck]
 """
 
 import argparse
+import os
 import struct
 import sys
 
@@ -191,6 +192,11 @@ if __name__ == "__main__":
     if not args.name.isascii():
         raise SystemExit("--name must be ASCII: it is written into a DOS text buffer")
     data = build(args.name)
+    # The iOS build writes this into its build tree, where nothing has created
+    # the directory yet -- and a configure step that dies on a missing parent
+    # directory is a confusing way to learn that.
+    parent = os.path.dirname(os.path.abspath(args.output))
+    os.makedirs(parent, exist_ok=True)
     with open(args.output, "wb") as f:
         f.write(data)
     print(f"wrote {args.output}: {len(data)} bytes  (banner: {args.name})")

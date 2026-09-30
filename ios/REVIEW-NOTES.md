@@ -1,8 +1,11 @@
 # DOSDeck — App Review notes
 
-Paste the whole of this into **Review Notes** on **every** submission, not just
-the first. App Review bounces an emulator submission that arrives without the
-4.7.4 index, and it does not carry over from the previous version.
+Everything BELOW the rule is the reviewer-facing text, and it goes into
+**Review Notes** on **every** submission, not just the first: App Review
+bounces an emulator submission that arrives without the 4.7.4 index, and the
+field does not carry over from the previous version. This paragraph is a note
+to ourselves and must not be sent -- `tool/set-review-notes.sh` splits on the
+rule so the reviewer never reads our instructions to each other.
 
 ---
 
