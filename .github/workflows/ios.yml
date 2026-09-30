@@ -318,11 +318,15 @@ jobs:
           tool/make-store-screenshots.py store/screenshots-raw-iphone
           tool/make-store-screenshots.py store/screenshots-raw-ipad
 
+      # always(): a run that captured nine of ten screens still produced nine
+      # screens, and the first time this failed late the good ones were thrown
+      # away with the job -- fifteen minutes of building for nothing.
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: screenshots
           path: |
             store/screenshots
             store/screenshots-raw-iphone
             store/screenshots-raw-ipad
-          if-no-files-found: error
+          if-no-files-found: warn

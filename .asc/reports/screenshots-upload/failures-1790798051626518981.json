@@ -1,0 +1,40 @@
+{
+  "versionLocalizationId": "5ab05fa7-a271-42e0-bdce-fccbfd10b50b",
+  "path": ".asc/reports/screenshots-upload/failures-1790798051626518981.json",
+  "rootPath": "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad2",
+  "deviceType": "IPAD_PRO_3GEN_129",
+  "displayType": "APP_IPAD_PRO_3GEN_129",
+  "setId": "05f4808d-ab91-4d77-9cd8-e0fed8ff8f66",
+  "files": [
+    "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad2/3-run.png",
+    "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad2/4-about.png",
+    "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad2/5-wizard.png"
+  ],
+  "orderedIds": [
+    "88000019-65fa-86ab-8035-778cf949ffcd",
+    "fcc00019-65fa-86ab-8006-d5b79bc9ff9f"
+  ],
+  "pendingFiles": [
+    "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad2/3-run.png",
+    "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad2/4-about.png",
+    "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad2/5-wizard.png"
+  ],
+  "pendingAssets": [
+    {
+      "fileName": "3-run.png",
+      "filePath": "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad2/3-run.png",
+      "assetId": "ba000019-65fa-86ab-8011-1dd89b89c7bf",
+      "checksum": "60524c11220825361d2f2d99e7341647",
+      "state": "UPLOAD_COMPLETE"
+    }
+  ],
+  "failures": [
+    {
+      "fileName": "3-run.png",
+      "filePath": "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad2/3-run.png",
+      "error": "timed out waiting for asset ba000019-65fa-86ab-8011-1dd89b89c7bf delivery: context deadline exceeded"
+    }
+  ],
+  "error": "timed out waiting for asset ba000019-65fa-86ab-8011-1dd89b89c7bf delivery: context deadline exceeded",
+  "generatedAt": "2026-09-30T19:54:11Z"
+}

@@ -76,20 +76,31 @@ capture() {   # <device-type regex> <output dir>
 
     for shot in "${SHOTS[@]}"; do
         i=$((i + 1))
-        xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
-        pid=$(SIMCTL_CHILD_RETRODOS_SHOT="$shot" \
-              xcrun simctl launch "$udid" "$BUNDLE_ID" | awk -F': ' '{print $2}')
-        # "run" boots DOS and starts the demo; the rest are just a frame.
-        if [ "$shot" = run ]; then sleep 25; else sleep 10; fi
-        # Plain ps on the RUNNER, not `simctl spawn ... ps`: a simulator app is
-        # an ordinary host process, and spawn runs a host binary inside the
-        # simulator runtime, where it fails -- so that version of this check
-        # called every launch dead and failed the job on a working app.
-        if [ -z "$pid" ] || ! ps -p "$pid" >/dev/null 2>&1; then
-            echo "::error::the app died before the '$shot' capture (pid ${pid:-none})" >&2
-            exit 1
-        fi
-        shoot "$udid" "$outdir/$i-$shot.png"
+        # Up to three goes per screen. A launch dying is not always a real
+        # defect: the same "run" shot that crashed here succeeded on the other
+        # device in the same job and on this device in the previous one, so it
+        # is intermittent, and losing a whole capture run to it wastes fifteen
+        # minutes of building. A screen that dies three times running is a
+        # genuine problem and still fails the job.
+        local try ok=0
+        for try in 1 2 3; do
+            xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
+            pid=$(SIMCTL_CHILD_RETRODOS_SHOT="$shot" \
+                  xcrun simctl launch "$udid" "$BUNDLE_ID" | awk -F': ' '{print $2}')
+            # "run" boots DOS and starts the demo; the rest are just a frame.
+            if [ "$shot" = run ]; then sleep 25; else sleep 10; fi
+            # Plain ps on the RUNNER, not `simctl spawn ... ps`: a simulator
+            # app is an ordinary host process, and spawn runs a host binary
+            # inside the simulator runtime, where it fails -- so that version
+            # of this check called every launch dead and failed the job on a
+            # working app.
+            if [ -z "$pid" ] || ! ps -p "$pid" >/dev/null 2>&1; then
+                echo "      ('$shot' died on attempt $try, pid ${pid:-none})"
+                continue
+            fi
+            if shoot "$udid" "$outdir/$i-$shot.png"; then ok=1; break; fi
+        done
+        [ "$ok" = 1 ] || { echo "::error::could not capture '$shot' in three attempts" >&2; exit 1; }
         echo "    $outdir/$i-$shot.png"
     done
     xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true

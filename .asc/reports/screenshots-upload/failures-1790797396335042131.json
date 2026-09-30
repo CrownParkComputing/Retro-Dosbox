@@ -1,0 +1,50 @@
+{
+  "versionLocalizationId": "5ab05fa7-a271-42e0-bdce-fccbfd10b50b",
+  "path": ".asc/reports/screenshots-upload/failures-1790797396335042131.json",
+  "rootPath": "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad",
+  "deviceType": "IPAD_PRO_3GEN_129",
+  "displayType": "APP_IPAD_PRO_3GEN_129",
+  "setId": "05f4808d-ab91-4d77-9cd8-e0fed8ff8f66",
+  "files": [
+    "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad/1-library.png",
+    "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad/2-demo.png",
+    "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad/3-run.png",
+    "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad/4-about.png",
+    "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad/5-wizard.png"
+  ],
+  "orderedIds": [
+    "88000019-65fa-86ab-8035-778cf949ffcd"
+  ],
+  "pendingFiles": [
+    "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad/2-demo.png",
+    "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad/3-run.png",
+    "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad/4-about.png",
+    "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad/5-wizard.png"
+  ],
+  "pendingAssets": [
+    {
+      "fileName": "2-demo.png",
+      "filePath": "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad/2-demo.png",
+      "assetId": "fcc00019-65fa-86ab-8006-d5b79bc9ff9f",
+      "checksum": "f47b5bf2988e5dc5ff729386b28843d9",
+      "state": "UPLOAD_COMPLETE"
+    }
+  ],
+  "results": [
+    {
+      "fileName": "1-library.png",
+      "filePath": "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad/1-library.png",
+      "assetId": "88000019-65fa-86ab-8035-778cf949ffcd",
+      "state": "COMPLETE"
+    }
+  ],
+  "failures": [
+    {
+      "fileName": "2-demo.png",
+      "filePath": "/tmp/claude-1000/-home-jon/374c6a70-ed3a-4f9d-a9f2-cb77cf9498d7/scratchpad/up-ipad/2-demo.png",
+      "error": "timed out waiting for asset fcc00019-65fa-86ab-8006-d5b79bc9ff9f delivery: request failed: Get \"https://api.appstoreconnect.apple.com/v1/appScreenshots/fcc00019-65fa-86ab-8006-d5b79bc9ff9f\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)"
+    }
+  ],
+  "error": "timed out waiting for asset fcc00019-65fa-86ab-8006-d5b79bc9ff9f delivery: request failed: Get \"https://api.appstoreconnect.apple.com/v1/appScreenshots/fcc00019-65fa-86ab-8006-d5b79bc9ff9f\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)",
+  "generatedAt": "2026-09-30T19:43:16Z"
+}
