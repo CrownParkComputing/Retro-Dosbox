@@ -23,6 +23,7 @@
 //  on and what to do on it.
 //
 
+import Combine
 import Foundation
 
 final class WindowsMachine: ObservableObject {

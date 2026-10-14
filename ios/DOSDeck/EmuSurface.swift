@@ -20,6 +20,7 @@ import Foundation
 import Metal
 import MetalKit
 import SwiftUI
+import UIKit
 
 /// Where the picture ended up, in view points. The touch layer needs it: a
 /// finger should move the pointer the distance it travelled ON THE GLASS,
@@ -67,6 +68,7 @@ struct EmuSurface: UIViewRepresentable {
         var integerScale = false
 
         private let geometry: EmuGeometry
+        private weak var view: MTKView?
         private var device: MTLDevice?
         private var queue: MTLCommandQueue?
         private var pipeline: MTLRenderPipelineState?
@@ -88,8 +90,26 @@ struct EmuSurface: UIViewRepresentable {
 
         func attach(to view: MTKView) {
             guard let device = view.device else { return }
+            self.view = view
             self.device = device
             queue = device.makeCommandQueue()
+
+            // Stop drawing before the app is suspended. A command buffer
+            // committed after suspension is terminated by the watchdog --
+            // "Attempted to issue commands while in the background" -- and it
+            // is not caught by anything: the app simply dies, and the crash
+            // report blames Metal. CADisplayLink usually stops in time on its
+            // own, which is exactly why relying on it is a bad bet.
+            let centre = NotificationCenter.default
+            centre.addObserver(self, selector: #selector(appWillSleep),
+                               name: UIApplication.didEnterBackgroundNotification,
+                               object: nil)
+            centre.addObserver(self, selector: #selector(appWillSleep),
+                               name: UIApplication.willResignActiveNotification,
+                               object: nil)
+            centre.addObserver(self, selector: #selector(appDidWake),
+                               name: UIApplication.didBecomeActiveNotification,
+                               object: nil)
 
             let source = """
             #include <metal_stdlib>
@@ -132,6 +152,11 @@ struct EmuSurface: UIViewRepresentable {
             vertices = device.makeBuffer(length: 4 * 4 * MemoryLayout<Float>.size,
                                          options: .storageModeShared)
         }
+
+        @objc private func appWillSleep() { view?.isPaused = true }
+        @objc private func appDidWake()   { view?.isPaused = false }
+
+        deinit { NotificationCenter.default.removeObserver(self) }
 
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 

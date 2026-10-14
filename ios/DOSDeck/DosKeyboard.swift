@@ -14,6 +14,7 @@
 //  also how you hold Shift while aiming with the other thumb.
 //
 
+import Foundation
 import SwiftUI
 
 struct DosKeyboard: View {

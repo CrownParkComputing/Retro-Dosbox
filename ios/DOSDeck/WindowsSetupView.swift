@@ -13,6 +13,7 @@
 //  user's, from the Files app, and that is the only way one gets here.
 //
 
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
