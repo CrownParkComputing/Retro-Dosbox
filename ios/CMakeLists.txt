@@ -9,19 +9,29 @@
 # .pbxproj is 40 KB of generated state that nobody can review in a diff, and
 # every setting worth having is expressed here instead.
 #
-# WHY IT IS NOT CALLED RETRO-DOS
-# ------------------------------
+# WHY IT IS NOT CALLED RETRO-DOS, AND WHY IT IS SWIFT
+# ---------------------------------------------------
 # Apple rejected the whole Retro-* family under guideline 4.3 -- spam, several
 # apps too alike from one developer. The answer is not a rename: it is that the
 # iOS app is its own app, with its own name, icon, identifier and listing, and
 # shares only the engine underneath. DOSDeck is that app. Android keeps
 # Retro-DOS and its signing key; nothing here is a second copy of it.
 #
+# The rename alone was not enough, because the INTERFACE was still the family's
+# -- frontend/retrodos_frontend.cpp, an SDL3 window with a Dear ImGui shell,
+# the same file the Android app draws. So the interface is now ios/DOSDeck:
+# SwiftUI, written for this platform, sharing no screen with anything else we
+# ship. Swift owns main(), the window and the application lifecycle; SDL is
+# linked only because DOSBox-X needs it for audio and timing, and never sees a
+# window. ios/build-core.sh compiles no ImGui at all.
+#
 # The name credits nothing on its own, so the app does it explicitly:
 # RETRODOS_APP_CORE puts "powered by DOSBox-X" under the wordmark on the first
 # screen. That is the GPL's requirement and the right thing besides.
 cmake_minimum_required(VERSION 3.20)
-project(DOSDeck LANGUAGES CXX)
+# Swift is a first-class language of this target, not a bolt-on: the whole
+# interface is written in it.
+project(DOSDeck LANGUAGES CXX Swift)
 
 set(RETRODOS_VERSION "1.0" CACHE STRING "CFBundleShortVersionString")
 # App Store Connect refuses a CFBundleVersion it has already seen, and says so
@@ -78,33 +88,16 @@ message(STATUS "demo: ${demo_out}")
 
 set(DEMO_FILES "${DEMO_COM}" "${DEMO_SRC}/FREEDOS.IMG")
 
-# The interface assets: the UI font and the wordmark. They go into the bundle
-# under assets/ui/, which is exactly the path retrodos_brand.cpp asks
-# SDL_GetBasePath for.
-set(UI_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../assets/ui")
-
-# DOSDeck's own wordmark, copied in under the name the frontend asks for.
+# NO INTERFACE ASSETS.
 #
-# retrodos_brand.cpp loads "assets/ui/wordmark.png" and nothing else, so the
-# choice of which mark is made here, at packaging time, rather than by teaching
-# the app about platforms. Retro-DOS's mark is deliberately NOT used: it is the
-# family artwork, and the family look is what guideline 4.3 objected to.
-set(RETRODOS_WORDMARK "${UI_SRC}/wordmark-dosdeck.png"
-    CACHE FILEPATH "the wordmark this app draws in its rail")
-if(NOT EXISTS "${RETRODOS_WORDMARK}")
-  message(FATAL_ERROR "wordmark missing: ${RETRODOS_WORDMARK}"
-                      " -- run tool/make_dosdeck_art.py")
-endif()
-configure_file("${RETRODOS_WORDMARK}"
-               "${CMAKE_CURRENT_BINARY_DIR}/bundle/assets/ui/wordmark.png" COPYONLY)
-
-set(UI_FILES "${UI_SRC}/ui-font.ttf"
-             "${CMAKE_CURRENT_BINARY_DIR}/bundle/assets/ui/wordmark.png")
-foreach(f ${UI_FILES})
-  if(NOT EXISTS "${f}")
-    message(FATAL_ERROR "bundled interface asset missing: ${f}")
-  endif()
-endforeach()
+# The ImGui frontend bundled a UI font and a PNG wordmark under assets/ui/,
+# which retrodos_brand.cpp loaded through SDL_GetBasePath. The Swift interface
+# needs neither: it draws the name as live text in SF Mono, which is sharper at
+# every size, reads correctly at any accessibility setting, and cannot drift out
+# of step with the app's name the way a baked image can.
+#
+# tool/make_dosdeck_art.py still produces the wordmark -- the store listing
+# uses it -- it is just not shipped inside the app any more.
 foreach(f ${DEMO_FILES})
   if(NOT EXISTS "${f}")
     message(FATAL_ERROR "bundled demo content missing: ${f}")
@@ -113,12 +106,37 @@ endforeach()
 
 configure_file(Info.plist.in "${CMAKE_CURRENT_BINARY_DIR}/Info.plist" @ONLY)
 
-# One translation unit, deliberately empty. Everything executable is already
-# inside libretrodos.a, including the frontend's main(); Xcode still wants a
-# source file to hang the target on.
+# The Swift interface. Listed file by file rather than globbed: a GLOB is
+# evaluated when CMake runs, so a new screen added later would silently not be
+# compiled until somebody re-ran cmake by hand.
+set(SWIFT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/DOSDeck")
+set(SWIFT_SOURCES
+  "${SWIFT_DIR}/DOSDeckApp.swift"        # @main, the scene, the audio session
+  "${SWIFT_DIR}/Theme.swift"             # the amber-phosphor look and its controls
+  "${SWIFT_DIR}/Storage.swift"           # the user's folders, and what is in them
+  "${SWIFT_DIR}/Zip.swift"               # unpacking an archive into a mountable folder
+  "${SWIFT_DIR}/Engine.swift"            # the one session, and what can be done inside it
+  "${SWIFT_DIR}/EmuSurface.swift"        # Metal, fed by the engine's framebuffer tap
+  "${SWIFT_DIR}/FrontDoor.swift"         # Windows or DOS, and About
+  "${SWIFT_DIR}/DosSetupView.swift"      # the DOS wizard
+  "${SWIFT_DIR}/WindowsMachine.swift"    # the Windows machine and its phases
+  "${SWIFT_DIR}/WindowsSetupView.swift"  # the Windows wizard and its walkthrough
+  "${SWIFT_DIR}/SessionView.swift"       # the machine running, and the panels over it
+  "${SWIFT_DIR}/DosKeyboard.swift")      # a PC keyboard, in scancodes
+foreach(f ${SWIFT_SOURCES})
+  if(NOT EXISTS "${f}")
+    message(FATAL_ERROR "Swift source missing: ${f}")
+  endif()
+endforeach()
+
+# One empty C++ translation unit, and it is not vestigial: it keeps CXX in the
+# target so that the toolchain links the C++ runtime. Everything in
+# libretrodos.a is C++, and a Swift-only target would leave every libc++ symbol
+# undefined at link time.
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/app_main.cpp"
-     "// Intentionally empty: main() comes from libretrodos.a (the frontend),\n"
-     "// which SDL renames to SDL_main and calls from its own UIKit entry.\n")
+     "// Intentionally empty. main() is Swift's, from @main in DOSDeckApp.swift;\n"
+     "// this file exists so the target still compiles C++ and therefore links\n"
+     "// libc++, which the engine in libretrodos.a needs.\n")
 
 set(ASSETS "${CMAKE_CURRENT_SOURCE_DIR}/Assets.xcassets")
 if(NOT EXISTS "${ASSETS}/AppIcon.appiconset/Icon-App-1024x1024@1x.png")
@@ -130,9 +148,9 @@ endif()
 
 add_executable(DOSDeck MACOSX_BUNDLE
   "${CMAKE_CURRENT_BINARY_DIR}/app_main.cpp"
+  ${SWIFT_SOURCES}
   "${ASSETS}"
-  ${DEMO_FILES}
-  ${UI_FILES})
+  ${DEMO_FILES})
 
 # The catalog is compiled by actool into Assets.car, and the icon NAME is what
 # puts CFBundleIcons in the built Info.plist. A delivery without that key is
@@ -142,9 +160,6 @@ set_source_files_properties("${ASSETS}" PROPERTIES
 
 set_source_files_properties(${DEMO_FILES} PROPERTIES
   MACOSX_PACKAGE_LOCATION "Resources/demo")
-
-set_source_files_properties(${UI_FILES} PROPERTIES
-  MACOSX_PACKAGE_LOCATION "Resources/assets/ui")
 
 set_target_properties(DOSDeck PROPERTIES
   MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_BINARY_DIR}/Info.plist"
@@ -166,14 +181,22 @@ set_target_properties(DOSDeck PROPERTIES
   # provisioning profiles" on something that is not the app.
   XCODE_ATTRIBUTE_CODE_SIGN_STYLE "${RETRODOS_CODE_SIGN_STYLE}"
   XCODE_ATTRIBUTE_PROVISIONING_PROFILE_SPECIFIER "${RETRODOS_PROVISIONING_PROFILE}"
-  XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "${RETRODOS_CODE_SIGN_IDENTITY}")
+  XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY "${RETRODOS_CODE_SIGN_IDENTITY}"
+  # Swift reaches the engine through ONE header, which is plain C on purpose:
+  # the C++ underneath has std::string in its signatures and Swift should not
+  # have to know that it exists.
+  XCODE_ATTRIBUTE_SWIFT_OBJC_BRIDGING_HEADER
+    "${CMAKE_CURRENT_SOURCE_DIR}/bridge/dosdeck_bridge.h"
+  XCODE_ATTRIBUTE_SWIFT_VERSION "5.0"
+  XCODE_ATTRIBUTE_ALWAYS_SEARCH_USER_PATHS "NO")
 
 # The app's own name reaches the C++ through one define, so a window title or a
 # settings folder cannot keep saying Retro-DOS while the icon says DOSDeck --
 # which is precisely the kind of leftover App Review reads as one app submitted
 # twice. It is set on the TARGET, so the library built by build-core.sh (which
-# has no idea which app it is going into) is unaffected... except that the
-# frontend IS in that library, so build-core.sh passes the same two defines.
+# has no idea which app it is going into) is unaffected... except that
+# retrodos_config.cpp and retrodos_win98.cpp ARE in that library and write the
+# name into a conf and a settings file, so build-core.sh passes the same two.
 target_compile_definitions(DOSDeck PRIVATE
   RETRODOS_APP_NAME="${RETRODOS_APP_NAME}"
   RETRODOS_APP_CORE="${RETRODOS_APP_CORE}")
@@ -186,6 +209,10 @@ target_link_options(DOSDeck PRIVATE
 
 target_link_libraries(DOSDeck PRIVATE
   "${LIBDIR}/libSDL3.a" z iconv
+  # MetalKit for the view the picture is drawn into. The rest of the Swift
+  # frameworks (SwiftUI, Metal, AVFoundation, Compression,
+  # UniformTypeIdentifiers) are autolinked from their import statements.
+  "-framework MetalKit"
   "-framework CoreFoundation" "-framework CoreMIDI" "-framework AudioToolbox"
   "-framework UIKit" "-framework Foundation" "-framework CoreGraphics"
   "-framework CoreVideo" "-framework CoreMedia" "-framework AVFoundation"

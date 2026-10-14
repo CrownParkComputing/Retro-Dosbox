@@ -36,13 +36,12 @@
 
 	<key>ITSAppUsesNonExemptEncryption</key><false/>
 
-	<!-- Landscape ONLY, matching android:screenOrientation="sensorLandscape".
-	     DOS is 320x200 and the shell is a two-pane layout -- a sidebar beside a
-	     content list. Portrait was allowed here at first on the theory that the
-	     library would be usable one-handed; it is not. The panes keep their
-	     widths, so the title collides with the toolbar and every row overlaps
-	     its own buttons. The emulator is landscape, the launcher is landscape,
-	     and the app should not pretend otherwise. -->
+	<!-- Landscape ONLY. A DOS screen is 4:3 and a Windows desktop is wider
+	     still; in portrait the picture would occupy a third of the glass and
+	     the rest would be furniture. The wizards are laid out for the same
+	     shape - two columns, which is what makes "choose a disc" and "what
+	     that means" readable side by side - so there is one orientation to
+	     design for and it is the one the machine runs in. -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
@@ -56,6 +55,12 @@
 	<key>UIRequiresFullScreen</key><true/>
 	<key>UIStatusBarHidden</key><true/>
 	<key>UIViewControllerBasedStatusBarAppearance</key><false/>
-	<key>UILaunchScreen</key><dict/>
+	<!-- The launch screen is the app's own screen colour, not the system
+	     background: DOSDeck is amber on near-black throughout, and a white
+	     flash before the first frame reads as a different app starting. -->
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key><string>LaunchBackground</string>
+	</dict>
 </dict>
 </plist>

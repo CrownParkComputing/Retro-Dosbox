@@ -137,17 +137,50 @@ echo "==> building the engine ($JOBS jobs)"
 make -k -j"$JOBS" || true
 [ -f src/gui/libgui.a ] || { echo "error: the engine did not build" >&2; exit 1; }
 
-# ------------------------------------------------------------ 3. frontend
-echo "==> building the SDL3 + ImGui frontend"
+# -------------------------------------------------------------- 3. bridge
+#
+# THE IMGUI FRONTEND IS NOT BUILT HERE, AND THAT IS THE WHOLE POINT.
+#
+# frontend/retrodos_frontend.cpp is the interface of the Android app and of
+# every other Retro-* title: an SDL3 window with a Dear ImGui shell drawn into
+# it -- a left rail beside a list of titles. Apple rejected the family under
+# guideline 4.3 for being several apps from one developer that are too alike,
+# and that file is what they were looking at. New artwork over the same screens
+# would not have answered it.
+#
+# So on iOS the interface is ios/DOSDeck -- SwiftUI, owning main(), the window
+# and the application lifecycle -- and what gets compiled into the library is
+# the ENGINE plus the two pieces of logic that are not interface at all:
+#
+#   retrodos_config.cpp   the DOSBox-X conf a DOS machine needs
+#   retrodos_win98.cpp    the Windows 98 installation, which is a config
+#                         generator and a reader of FAT disk images
+#
+# Both are headless, both are the authority on what a working machine looks
+# like, and both are shared with the other builds on purpose: a conf that is
+# right on Android is right here, and a second copy of it in Swift would be a
+# second thing to get wrong. Neither draws anything.
+#
+# dosdeck_bridge.cpp is the plain-C door between those and Swift.
+#
+# What is deliberately absent: imgui, retrodos_brand (textures and fonts),
+# retrodos_osk, retrodos_pad, retrodos_touchpad, retrodos_touchmouse,
+# retrodos_media and retrodos_media_http (the artwork downloader -- its absence
+# is also why nothing in this binary can reach a network), retrodos_saf
+# (Android's storage model) and retrodos_demo. Every one of those is interface
+# or platform plumbing that iOS now has its own version of.
+echo "==> building the bridge and the headless config logic"
 FE="$BUILD/frontend"; mkdir -p "$FE"
-# The app's name reaches the C++ through these two, and the frontend is
-# compiled into the same library for every app built from this tree -- so they
-# are set HERE as well as on the Xcode target, or the library keeps the default
-# and the running app calls itself Retro-DOS while its icon says otherwise.
+# The app's name reaches the C++ through these two -- the conf's window title
+# and the header of each settings file -- so they are set HERE as well as on
+# the Xcode target.
 APP_NAME="${APP_NAME:-DOSDeck}"
 APP_CORE="${APP_CORE:-DOSBox-X}"
-FE_FLAGS="$IOS_CFLAGS -std=gnu++17 -I$CORE/include -I$APP/frontend/imgui -I$SDL3_PREFIX/include"
-for src in "$APP"/frontend/*.cpp "$APP"/frontend/imgui/*.cpp; do
+FE_FLAGS="$IOS_CFLAGS -std=gnu++17 -I$CORE/include -I$APP/frontend -I$HERE/bridge -I$SDL3_PREFIX/include"
+for src in "$APP/frontend/retrodos_config.cpp" \
+           "$APP/frontend/retrodos_win98.cpp" \
+           "$HERE/bridge/dosdeck_bridge.cpp"; do
+    [ -f "$src" ] || { echo "error: missing $src" >&2; exit 1; }
     # The two identity defines are written out HERE, quoted at the point of
     # use, rather than folded into $FE_FLAGS: that variable is deliberately
     # unquoted so it word-splits, and a value with quotes in it does not
@@ -157,7 +190,7 @@ for src in "$APP"/frontend/*.cpp "$APP"/frontend/imgui/*.cpp; do
         -DRETRODOS_APP_NAME="\"$APP_NAME\"" \
         -DRETRODOS_APP_CORE="\"$APP_CORE\"" \
         -c -o "$FE/$(basename "${src%.cpp}").o" "$src" \
-        || { echo "error: frontend compile failed on $src" >&2; exit 1; }
+        || { echo "error: compile failed on $src" >&2; exit 1; }
 done
 
 # ------------------------------------------------- 4. one static library
