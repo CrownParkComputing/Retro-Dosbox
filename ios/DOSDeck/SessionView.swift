@@ -23,7 +23,7 @@ struct SessionView: View {
     @StateObject private var geometry = EmuGeometry()
     @StateObject private var win = WindowsMachine()
 
-    @State private var panel: Panel?
+    @State private var tray: Tray?
     @State private var showKeyboard = false
     @State private var titles: [Storage.Title] = []
     @State private var discs: [Storage.Disc] = []
@@ -33,7 +33,7 @@ struct SessionView: View {
     @AppStorage("machine.aspect_mode") private var aspectMode: Int = 0
     @AppStorage("machine.integer_scale") private var integerScale: Int = 0
 
-    enum Panel: String, Identifiable {
+    enum Tray: String, Identifiable {
         case software, discs, windows, settings
         var id: String { rawValue }
     }
@@ -66,7 +66,7 @@ struct SessionView: View {
             .padding(.horizontal, 14)
             .padding(.top, 10)
 
-            if let panel { panelOverlay(panel) }
+            if let tray { trayOverlay(tray) }
 
             if let notice = engine.notice { noticeBar(notice) }
         }
@@ -90,13 +90,13 @@ struct SessionView: View {
     private var chips: some View {
         HStack(spacing: 8) {
             if engine.mode == .windows {
-                chip("list.bullet.clipboard", "Setup") { panel = .windows }
+                chip("list.bullet.clipboard", "Setup") { tray = .windows }
             } else {
-                chip("square.grid.2x2", "Run") { panel = .software; reload() }
+                chip("square.grid.2x2", "Run") { tray = .software; reload() }
             }
-            chip("opticaldisc", "Discs") { panel = .discs; reload() }
+            chip("opticaldisc", "Discs") { tray = .discs; reload() }
             chip("keyboard", "Keys") { withAnimation { showKeyboard.toggle() } }
-            chip("slider.horizontal.3", "More") { panel = .settings }
+            chip("slider.horizontal.3", "More") { tray = .settings }
         }
     }
 
@@ -129,20 +129,20 @@ struct SessionView: View {
         }
     }
 
-    // MARK: - Panels
+    // MARK: - Trays
 
-    private func panelOverlay(_ which: Panel) -> some View {
+    private func trayOverlay(_ which: Tray) -> some View {
         HStack(spacing: 0) {
             // Tapping the picture puts the panel away. The machine keeps
             // running behind it the whole time -- nothing here pauses it.
             Color.black.opacity(0.35)
                 .ignoresSafeArea()
-                .onTapGesture { panel = nil }
+                .onTapGesture { tray = nil }
             Group {
                 switch which {
                 case .software: softwarePanel
                 case .discs:    discsPanel
-                case .windows:  WindowsWalkthrough(win: win) { panel = nil }
+                case .windows:  WindowsWalkthrough(win: win) { tray = nil }
                                     .environmentObject(engine)
                 case .settings: settingsPanel
                 }
@@ -167,7 +167,7 @@ struct SessionView: View {
                     ForEach(titles.filter { $0.kind == .folder || $0.kind == .archive }) { title in
                         Button {
                             engine.run(title: title)
-                            panel = nil
+                            tray = nil
                         } label: {
                             ChoiceRow(title: title.name,
                                       subtitle: subtitle(for: title),
@@ -263,7 +263,7 @@ struct SessionView: View {
                                   + "how the next step starts.") {
                         DeckButton(title: "Reset") {
                             engine.reset(hard: true)
-                            panel = nil
+                            tray = nil
                         }
                         .frame(width: 110)
                     }
@@ -284,7 +284,7 @@ struct SessionView: View {
                     .kerning(1.4)
                     .foregroundColor(Theme.cursor)
                 Spacer()
-                Button { panel = nil } label: {
+                Button { tray = nil } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(Theme.amberDim)

@@ -96,10 +96,11 @@ final class Engine: ObservableObject {
 
     /// Start a DOS session.
     ///
-    /// `mount` is mounted as C: and is normally the user's whole DOS folder
-    /// rather than one game: on a real machine C: is the disk, and having the
-    /// library on it is what makes the DOS wizard's "run something else"
-    /// possible without touching the emulator again.
+    /// `mount` becomes C:. The wizard passes the chosen title's own folder, so
+    /// that the title sits at the root of C: the way its installer expected --
+    /// or, when nothing is chosen and the user wants a bare prompt, the whole
+    /// DOS folder, so everything they own is one CD away. Running something
+    /// ELSE later never touches C:; it mounts D: instead.
     @discardableResult
     func startDOS(machine: DDMachine, mount: URL?, runCommand: String?,
                   cd: URL? = nil, bootFloppy: URL? = nil,
