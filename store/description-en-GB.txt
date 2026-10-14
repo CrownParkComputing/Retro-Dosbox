@@ -1,27 +1,35 @@
-Bring MS-DOS era PC gaming to your device. This app is a full PC emulator built on DOSBox-X, ready to run your own legally owned DOS software.
+Two machines in one app: a DOS PC you can set up exactly as a game needs it, and a Windows 98 PC you install yourself from your own CD. DOSDeck is built on DOSBox-X, and it runs your own legally owned software.
+
+CHOOSE A MACHINE
+DOSDeck opens by asking one question: Windows or DOS. Each answer leads to a walkthrough that sets the machine up with you, a step at a time, and then gets out of the way.
+
+DOS, WITH EVERY SETTING THAT MATTERS
+Graphics card from Hercules and CGA through EGA, Tandy and VGA to an S3 SVGA. CPU from an 8088 to a Pentium, with cycles fixed or flat out. Memory, video memory, EMS, UMB, the maths coprocessor, the reported DOS version, Sound Blaster model and PC speaker. These are the settings that decide whether an awkward title runs at all, so all of them are in front of you rather than buried.
 
 RUNS WITH NOTHING SUPPLIED
-Unlike a console or a home computer, a PC needs no ROM. DOSBox-X provides the DOS itself, so the emulator boots to a working C:\> prompt the moment you install it. A small demo program is included so there is something to run straight away.
+A PC needs no ROM. DOSBox-X provides the DOS itself, so the machine boots to a working C:\> prompt the moment you install the app, and a small demonstration program is included so there is something to run straight away. A FreeDOS 1.3 boot floppy is included too, for software that wants a genuine DOS kernel underneath it. Both are free software. Neither is MS-DOS.
 
-TWO WAYS TO RUN DOS
-Use the built-in DOS, which starts fastest and mounts your games folder as drive C:, or boot the bundled FreeDOS 1.3 for software that wants a genuine DOS kernel underneath it. Both are free software. Neither is MS-DOS.
+WINDOWS 98, INSTALLED PROPERLY
+Point DOSDeck at your own Windows 98 CD and it makes the disk, boots the disc and walks you through Setup — which restarts the machine several times, and DOSDeck boots the right thing every time without being told. It watches the disk to see how far the installation has got, so it always knows which step you are on. A 3dfx Voodoo is emulated for the 3D games of the era.
 
-RUN YOUR GAMES
-Put each game in its own folder inside DOSDeck in the Files app, and it appears in the library. EXE and COM programs, floppy images and ISO/CUE discs all work.
+CHANGE THE DISC WHILE IT RUNS
+Once Windows is up, the disc list puts a CD in the drive or swaps one out exactly as a real machine would, without restarting anything.
 
-AUTHENTIC SOUND AND PICTURE
-Sound Blaster, Gravis Ultrasound and PC speaker audio, EGA/VGA/SVGA graphics, and cycle control from an original 8088 up to a fast 486.
+YOUR SOFTWARE, YOUR FILES
+Put a folder of DOS files — or a ZIP of one — into DOSDeck's folder in the Files app and it appears in the list. ZIPs are unpacked for you. Discs go in the Discs folder: ISO, CUE, BIN, IMG and CHD. Start one title and run another from inside the same machine, without going back to the beginning.
 
-BUILT FOR TOUCH AND FOR CONTROLLERS
-On-screen controls when you have no pad, and a real gamepad when you do -- both feed the same buttons. What each button sends is a per-game setting, because DOS never agreed on a control scheme, and it can be changed from the in-game menu while the game is running.
+A KEYBOARD AND A POINTER
+A real PC keyboard on screen, with latching Ctrl, Alt and Shift so that key combinations take one hand. The touchscreen works as a trackpad: drag to move the pointer, tap to click, two fingers for the right button, press and hold to drag.
 
 FEATURES
 - DOSBox-X emulation, from 8088 to Pentium-era PCs
+- A guided Windows 98 installation from your own CD
 - Built-in DOS or bundled FreeDOS 1.3
-- Game folders, floppy images, ISO and CUE disc images
-- Sound Blaster, Gravis Ultrasound and PC speaker audio
-- Gamepad, on-screen controls and per-game key mapping
-- Adjustable CPU cycles, fixed or maximum
-- Add games through the Files app
+- Game folders and ZIP archives, unpacked in the app
+- ISO, CUE, BIN, IMG and CHD discs, changeable while the machine runs
+- Sound Blaster and PC speaker audio
+- Full machine setup: graphics card, CPU, cycles, memory, EMS, UMB, DOS version
+- Aspect-correct picture, with whole-pixel scaling if you prefer it
+- No network features of any kind
 
-This app ships with no games and no MS-DOS. Add your own legally owned DOS software to begin.
+This app ships with no games, no MS-DOS and no Windows. Add your own legally owned software to begin.

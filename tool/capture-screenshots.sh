@@ -9,22 +9,31 @@
 # also testable here and unrunnable there.
 #
 # HOW A SCREEN IS REACHED. simctl has no tap API, so there is no way to drive
-# the UI. RETRODOS_SHOT names the screen to open on and the frontend honours
-# it at startup; SIMCTL_CHILD_ is how an environment variable reaches the app.
-# It is inert in the shipped app because nothing can set one for an App Store
-# app on a device.
+# the UI. RETRODOS_SHOT names the screen to open on and the app honours it at
+# startup (ios/DOSDeck/Shot.swift); SIMCTL_CHILD_ is how an environment
+# variable reaches the app. It is inert in the shipped app because nothing can
+# set one for an App Store app on a device.
+#
+# The names changed with the interface: the old set photographed a library, a
+# demo page and a wizard, and none of those screens exists any more. These are
+# the five that say what the app is -- the Windows-or-DOS front door, the two
+# halves of the DOS wizard, the Windows walkthrough, and a machine actually
+# running.
 #
 # TWO WAYS A CAPTURE LIES, both seen for real:
 #
 #   1. simctl reports a successful launch for a process that crashes a moment
 #      later, and the screenshot is then of the home screen.
-#   2. The app is still starting, and the screenshot is iOS's launch screen --
-#      plain white, and completely convincing as a file. One of these reached
-#      a finished store-ready set before anybody looked at it.
+#   2. The app is still starting, and the screenshot is iOS's launch screen.
+#      It used to be plain white and completely convincing as a file; one of
+#      those reached a finished store-ready set before anybody looked at it.
+#      It is now the app's own near-black, which the near-white half of
+#      capture-is-drawn.py no longer catches -- but its second test does, and
+#      always did: a launch screen is ONE flat colour, and an interface never
+#      is.
 #
 # Both are checked below rather than trusted: the process must still be alive,
-# and the frame must be dark, because this interface is near-black
-# (SDL_SetRenderDrawColor(ren, 12, 12, 16)) and the launch screen is white.
+# and the frame must have something drawn in it.
 set -euo pipefail
 
 APP_PATH="${1:?usage: capture-screenshots.sh <path-to-app-bundle>}"
@@ -33,7 +42,7 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
 # The screens to photograph, in the order they are numbered. The first is the
 # one App Store search results show, so it leads with what the app is.
-SHOTS=(library demo run about wizard)
+SHOTS=(front dos machine windows session)
 
 [ -d "$APP_PATH" ] || { echo "no app bundle at $APP_PATH" >&2; exit 1; }
 
@@ -87,8 +96,9 @@ capture() {   # <device-type regex> <output dir>
             xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
             pid=$(SIMCTL_CHILD_RETRODOS_SHOT="$shot" \
                   xcrun simctl launch "$udid" "$BUNDLE_ID" | awk -F': ' '{print $2}')
-            # "run" boots DOS and starts the demo; the rest are just a frame.
-            if [ "$shot" = run ]; then sleep 25; else sleep 10; fi
+            # "session" boots DOS and starts the demo; the rest are a frame
+            # of SwiftUI and are up as soon as the app is.
+            if [ "$shot" = session ]; then sleep 25; else sleep 10; fi
             # Plain ps on the RUNNER, not `simctl spawn ... ps`: a simulator
             # app is an ordinary host process, and spawn runs a host binary
             # inside the simulator runtime, where it fails -- so that version

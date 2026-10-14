@@ -21,6 +21,9 @@ struct WindowsSetupView: View {
     @EnvironmentObject var engine: Engine
     /// Back to the front door. Not a dismissal: the wizard is a route.
     var onCancel: () -> Void
+    /// Open on the steps rather than the disc list, so a capture shows what
+    /// the walkthrough is rather than an empty folder.
+    var startOnInstall = false
     @StateObject private var win = WindowsMachine()
 
     private enum Page: Int { case disc, machine, install }
@@ -47,7 +50,11 @@ struct WindowsSetupView: View {
             .padding(.horizontal, 22)
             .padding(.vertical, 14)
         }
-        .onAppear { discs = Storage.discImages(); win.load() }
+        .onAppear {
+            discs = Storage.discImages()
+            win.load()
+            if startOnInstall { page = .install }
+        }
         .fileImporter(isPresented: $importing,
                       allowedContentTypes: [.data],
                       allowsMultipleSelection: true) { result in

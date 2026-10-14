@@ -20,6 +20,8 @@ struct DosSetupView: View {
     @EnvironmentObject var engine: Engine
     /// Back to the front door. Not a dismissal: the wizard is a route.
     var onCancel: () -> Void
+    /// Open on the hardware page. Only a store capture asks for this.
+    var startOnMachine = false
 
     private enum Page { case software, machine }
     @State private var page: Page = .software
@@ -62,7 +64,10 @@ struct DosSetupView: View {
 
             if let busy { BusyOverlay(message: busy) }
         }
-        .onAppear(perform: reload)
+        .onAppear {
+            reload()
+            if startOnMachine { page = .machine }
+        }
         .fileImporter(isPresented: $importing,
                       allowedContentTypes: [.folder, .data],
                       allowsMultipleSelection: true) { result in

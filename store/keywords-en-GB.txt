@@ -1,1 +1,1 @@
-dos,emulator,retro,vintage,pc,vga,floppy,cd-rom,486,386,freedos,classic games,prompt
+dos,emulator,retro,vintage,pc,vga,floppy,cd-rom,486,windows 98,freedos,prompt

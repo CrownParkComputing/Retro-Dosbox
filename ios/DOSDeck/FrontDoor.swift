@@ -23,6 +23,8 @@ struct FrontDoor: View {
     @EnvironmentObject var engine: Engine
     /// Which door was opened. The root decides what that means.
     var onChoose: (RootView.Route) -> Void
+    /// Open straight onto About. Only a store capture asks for this.
+    var openAbout = false
     @State private var showAbout = false
 
     var body: some View {
@@ -40,6 +42,7 @@ struct FrontDoor: View {
             .padding(.vertical, 18)
         }
         .sheet(isPresented: $showAbout) { AboutView() }
+        .onAppear { if openAbout { showAbout = true } }
     }
 
     private var header: some View {

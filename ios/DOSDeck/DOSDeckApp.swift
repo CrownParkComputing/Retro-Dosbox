@@ -91,14 +91,41 @@ struct RootView: View {
             } else {
                 switch route {
                 case .frontDoor:
-                    FrontDoor(onChoose: { route = $0 }).environmentObject(engine)
+                    FrontDoor(onChoose: { route = $0 },
+                              openAbout: Shot.requested == .about)
+                        .environmentObject(engine)
                 case .dos:
-                    DosSetupView(onCancel: { route = .frontDoor }).environmentObject(engine)
+                    DosSetupView(onCancel: { route = .frontDoor },
+                                 startOnMachine: Shot.requested == .machine)
+                        .environmentObject(engine)
                 case .windows:
-                    WindowsSetupView(onCancel: { route = .frontDoor }).environmentObject(engine)
+                    WindowsSetupView(onCancel: { route = .frontDoor },
+                                     startOnInstall: Shot.requested == .windows)
+                        .environmentObject(engine)
                 }
             }
         }
         .animation(.easeInOut(duration: 0.2), value: engine.started)
+        .onAppear(perform: openRequestedScreen)
+    }
+
+    /// The store captures cannot tap, so the app is told where to open.
+    /// Does nothing in a shipped app -- see Shot.
+    private func openRequestedScreen() {
+        switch Shot.requested {
+        case .none, .front, .about:
+            route = .frontDoor
+        case .dos, .machine:
+            route = .dos
+        case .windows:
+            route = .windows
+        case .session:
+            // The bundled demo, which is the one thing guaranteed to be there
+            // on a fresh install.
+            let demo = Storage.dos.appendingPathComponent("Demo", isDirectory: true)
+            _ = engine.startDOS(machine: Engine.loadMachine(), mount: demo,
+                                runCommand: Storage.runnable(in: demo),
+                                title: "Demo")
+        }
     }
 }

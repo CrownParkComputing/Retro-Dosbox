@@ -122,7 +122,8 @@ set(SWIFT_SOURCES
   "${SWIFT_DIR}/WindowsMachine.swift"    # the Windows machine and its phases
   "${SWIFT_DIR}/WindowsSetupView.swift"  # the Windows wizard and its walkthrough
   "${SWIFT_DIR}/SessionView.swift"       # the machine running, and the panels over it
-  "${SWIFT_DIR}/DosKeyboard.swift")      # a PC keyboard, in scancodes
+  "${SWIFT_DIR}/DosKeyboard.swift"       # a PC keyboard, in scancodes
+  "${SWIFT_DIR}/Shot.swift")             # opening on a named screen, for captures
 foreach(f ${SWIFT_SOURCES})
   if(NOT EXISTS "${f}")
     message(FATAL_ERROR "Swift source missing: ${f}")
