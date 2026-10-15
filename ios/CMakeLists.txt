@@ -33,7 +33,14 @@ cmake_minimum_required(VERSION 3.20)
 # interface is written in it.
 project(DOSDeck LANGUAGES CXX Swift)
 
-set(RETRODOS_VERSION "1.0" CACHE STRING "CFBundleShortVersionString")
+# 2.0, because 1.0 is dead: it was rejected under guideline 4.3 and the app
+# has never been on sale. A rejected version cannot sit beside a new one --
+# App Store Connect refuses to create a second version while one is REJECTED,
+# so the existing record is renamed to this and resubmitted. The number has to
+# match on both sides: a build whose CFBundleShortVersionString is 1.0 cannot
+# be attached to a 2.0 App Store version, and the only symptom is that the
+# build never appears in the list to choose from.
+set(RETRODOS_VERSION "2.0" CACHE STRING "CFBundleShortVersionString")
 # App Store Connect refuses a CFBundleVersion it has already seen, and says so
 # only after the whole upload has transferred, so CI stamps a UTC timestamp.
 set(RETRODOS_BUILD "1" CACHE STRING "CFBundleVersion")
