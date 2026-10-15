@@ -52,19 +52,47 @@ SOURCES = {
 }
 
 
-def upright(img: Image.Image, size: tuple) -> Image.Image:
-    """Rotate a capture whose orientation does not match the target.
+def content_box(img: Image.Image) -> tuple | None:
+    """The app's own pixels, without the letterbox the simulator pads with.
 
-    `xcrun simctl io screenshot` photographs the DEVICE framebuffer, and the
-    simulator boots portrait. A landscape-only app is rotated inside that
-    frame, so the raw file is 1320x2868 with the interface lying on its side.
-    Scaling that into a landscape target without rotating produces a legal
-    upload of a sideways app -- which is how it went unnoticed the first time.
+    The padding is pure black; the app's darkest background is (16,11,4), so a
+    threshold just above black separates the two. Returns None if the frame is
+    entirely black, which capture-is-drawn.py would already have rejected.
+    """
+    mask = img.convert("L").point(lambda v: 255 if v > 6 else 0)
+    return mask.getbbox()
+
+
+def upright(img: Image.Image, size: tuple) -> Image.Image:
+    """Rotate a capture whose INTERFACE, not whose canvas, is on its side.
+
+    `xcrun simctl io screenshot` photographs the DEVICE framebuffer and the
+    simulator boots portrait, so the raw file is portrait either way -- but
+    what is inside it differs by device, and that is the whole difficulty:
+
+      iPhone  iOS rotates the landscape-only interface within the portrait
+              screen, so the raw 1320x2868 holds the app lying on its side and
+              filling the frame.
+      iPad    the app is handed a landscape canvas and LETTERBOXED upright in
+              the middle of the portrait screen, with black above and below.
+
+    Deciding from the canvas, which this used to do, is therefore right for
+    the iPhone and wrong for the iPad: it rotated an already-upright interface
+    and produced a legal upload of a sideways app. (Legal uploads of sideways
+    apps are a recurring theme here -- it is what the first version of this
+    file did to every device.)
+
+    So the decision is made from the CONTENT's own shape, after the letterbox
+    is cropped away. Cropping is wanted regardless: it is what makes the
+    result full-bleed rather than a small picture adrift in a padded frame.
 
     Counter-clockwise, because the home indicator ends up on the right and the
     camera cutout on the left: iOS landscape-left, which is what the simulator
     rotates a landscape-only app into.
     """
+    box = content_box(img)
+    if box:
+        img = img.crop(box)
     if (img.width < img.height) != (size[0] < size[1]):
         return img.rotate(90, expand=True)
     return img
