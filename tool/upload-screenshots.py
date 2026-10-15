@@ -118,18 +118,32 @@ def main(argv: list[str]) -> int:
                 return 1
             time.sleep(POLL_INTERVAL)
             continue
+        # What was uploaded has to be there and COMPLETE, and nothing in the
+        # set may be stuck. Counting rows against len(shots) -- which this
+        # used to do -- is only correct when the set was emptied first: an
+        # upload WITHOUT --replace appends, so a set holding five older
+        # screenshots and four new ones is nine rows against four files, the
+        # count never matches, and the tool waits out its fifteen minutes and
+        # reports failure over an upload that completely succeeded.
+        want = {shot.name for shot in shots}
         done = [f for f, st in rows if st == "COMPLETE"]
         stuck = [(f, st) for f, st in rows if st != "COMPLETE"]
-        if len(done) == len(shots) and not stuck:
-            print(f"all {len(done)} COMPLETE in {display_type}")
+        missing = want - set(done)
+        if not stuck and not missing:
+            print(f"all {len(want)} COMPLETE in {display_type}"
+                  + (f" (set holds {len(rows)})" if len(rows) != len(want) else ""))
             return 0
         if time.time() > deadline:
-            print(f"timed out: {len(done)}/{len(shots)} COMPLETE", file=sys.stderr)
+            print(f"timed out: {len(want) - len(missing)}/{len(want)} COMPLETE",
+                  file=sys.stderr)
             for f, st in stuck:
                 print(f"  {f}: {st}", file=sys.stderr)
+            for f in sorted(missing):
+                print(f"  {f}: never appeared in the set", file=sys.stderr)
             return 1
-        print(f"  {len(done)}/{len(shots)} complete"
-              + (f"; waiting on {', '.join(f for f, _ in stuck)}" if stuck else ""))
+        waiting = [f for f, _ in stuck] + sorted(missing)
+        print(f"  {len(want) - len(missing)}/{len(want)} complete"
+              + (f"; waiting on {', '.join(waiting)}" if waiting else ""))
         time.sleep(POLL_INTERVAL)
 
 
