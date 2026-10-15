@@ -446,7 +446,28 @@ extern "C" int dd_write_phase_batch(const DDWinMachine *m, const char *out_path)
      * to test it on. */
     b += "IF NOT EXIST Y:\\" + hdd + " GOTO MAKE\n";
     b += "IMGMOUNT C " + hddq + "\n";
-    if (!w.iso.empty()) b += "IMGMOUNT D " + isoq + "\n";
+    /*
+     * "-t iso" is not optional, and leaving it off fails in a way that blames
+     * the disc.
+     *
+     * Without it DOSBox-X still recognises the file and attaches it as an IDE
+     * CD-ROM -- the log even says "CD-ROM image mounted to drive D" -- but
+     * there is no MSCDEX drive for "-bootcd D" to read, so the El Torito
+     * lookup finds the boot record, mounts the extracted image as a HARD DISK
+     * on the IDE slave, and the guest prints
+     *
+     *   This is not a bootable disk. Please insert a bootable floppy ...
+     *
+     * against a Windows 98 SE disc that is unambiguously bootable. With it:
+     *
+     *   MSCDEX installed.
+     *   Drive A is mounted as El Torito floppy drive
+     *
+     * Measured against a real disc, by hand at the prompt. The desktop
+     * frontend's win98_autoexec() omits it too and presumably has the same
+     * fault; this file is iOS's and is fixed here.
+     */
+    if (!w.iso.empty()) b += "IMGMOUNT D " + isoq + " -t iso\n";
     b += std::string("IF EXIST ") + proof + " GOTO HDD\n";
     if (!w.iso.empty()) {
         /* "-t floppy" is not optional, whatever the guide says: without it
