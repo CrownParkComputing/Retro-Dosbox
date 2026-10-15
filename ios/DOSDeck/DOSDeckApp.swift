@@ -99,8 +99,7 @@ struct RootView: View {
                                  startOnMachine: Shot.requested == .machine)
                         .environmentObject(engine)
                 case .windows:
-                    WindowsSetupView(onCancel: { route = .frontDoor },
-                                     startOnInstall: Shot.requested == .windows)
+                    WindowsSetupView(onCancel: { route = .frontDoor })
                         .environmentObject(engine)
                 }
             }

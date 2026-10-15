@@ -21,8 +21,12 @@ struct WindowsSetupView: View {
     @EnvironmentObject var engine: Engine
     /// Back to the front door. Not a dismissal: the wizard is a route.
     var onCancel: () -> Void
-    /// Open on the steps rather than the disc list, so a capture shows what
-    /// the walkthrough is rather than an empty folder.
+    /// Open on the last page rather than the disc list. Nothing asks for this
+    /// now -- the store capture used to, and the picture it produced led with
+    /// a red "Not ready: choose your Windows 98 CD-ROM image" over a disabled
+    /// button, because a fresh simulator has no disc. True, and a poor way to
+    /// introduce the app. The disc page says the same thing the right way up:
+    /// the disc is yours, and here is what it has to be.
     var startOnInstall = false
     @StateObject private var win = WindowsMachine()
 
