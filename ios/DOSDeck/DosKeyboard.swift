@@ -33,6 +33,20 @@ struct DosKeyboard: View {
         /// Latching modifier rather than a key that is pressed and released.
         var modifier: Modifier? = nil
         enum Modifier { case ctrl, alt, shift }
+
+        /// Takes the scancode as `Int` and keeps it as `Int32`.
+        ///
+        /// DD_SCAN_* are constants of an anonymous C enum, and Swift imports
+        /// those as `Int` while importing the `int` parameter of dd_key()
+        /// beside them as `Int32`. Converting here costs one initialiser;
+        /// converting at the call sites would cost a cast on every one of the
+        /// ninety-odd keys below.
+        init(cap: String, code: Int, width: CGFloat = 1, modifier: Modifier? = nil) {
+            self.cap = cap
+            self.code = Int32(code)
+            self.width = width
+            self.modifier = modifier
+        }
     }
 
     private var rows: [[Key]] {
@@ -172,7 +186,7 @@ struct DosKeyboard: View {
             // combination and are left latched until tapped off.
             if shift {
                 shift = false
-                send(DD_SCAN_LSHIFT, false)
+                send(Int32(DD_SCAN_LSHIFT), false)
             }
         }
     }
