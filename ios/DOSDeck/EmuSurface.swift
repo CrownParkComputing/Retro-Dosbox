@@ -182,7 +182,7 @@ struct EmuSurface: UIViewRepresentable {
             let viewSize = view.drawableSize
             let rect = fit(frame: textureSize, into: viewSize)
             writeQuad(rect, in: viewSize, to: vertices)
-            publish(rect, viewSize: viewSize, scale: view.contentScaleFactor)
+            publish(rect: rect, viewSize: viewSize, scale: view.contentScaleFactor)
 
             if let encoder = buffer.makeRenderCommandEncoder(descriptor: pass) {
                 encoder.setRenderPipelineState(pipeline)
