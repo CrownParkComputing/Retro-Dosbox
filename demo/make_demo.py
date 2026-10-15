@@ -166,13 +166,21 @@ def build(name="Retro-DOS"):
     # and so the iOS demo -- the very first thing an App Review reviewer is
     # told to tap -- introduced itself as the Android app. That is exactly the
     # leftover guideline 4.3 reads as one app submitted twice.
+    #
+    # Nothing else in it names a screen or a toolkit either, for the same
+    # reason. It used to say "SDL3 frontend" and send the reader to "the
+    # library screen", and on iOS both became untrue the day the interface was
+    # rewritten in Swift -- while still being the first text a reviewer reads.
+    # What is true on every platform is that the app runs software you supply,
+    # and that this program is here so there is something to run before you
+    # have supplied any.
     text = ("\r\n"
             f"  {name}\r\n"
             f"  {'-' * len(name)}\r\n"
-            "  DOSBox-X core, SDL3 frontend.\r\n\r\n"
-            "  This is the built-in demo, shown because no games\r\n"
-            "  were found. Add your DOS games from the library\r\n"
-            "  screen to play them here.\r\n\r\n"
+            "  DOSBox-X, running software you supply.\r\n\r\n"
+            "  This program ships inside the app, so there is\r\n"
+            "  something to run before you have added anything\r\n"
+            "  of your own.\r\n\r\n"
             "  Press any key to start the demo,\r\n"
             "  then any key again to return.\r\n$")
     a.db(*text.encode("ascii"))
