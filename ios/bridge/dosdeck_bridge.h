@@ -95,9 +95,17 @@ void dd_frame_size(int *out_w, int *out_h);
 int dd_copy_frame(uint32_t *dst, int capacity, int *out_w, int *out_h,
                   uint64_t *out_serial);
 
-/* The ratio this frame should be DISPLAYED at, x1000. DOS modes are routinely
- * non-square-pixel: 320x200 is a 4:3 picture, not 16:10, and ignoring that is
- * the classic emulator tell. 0 when the engine has not said. */
+/*
+ * The PIXEL aspect ratio of this frame, x1000. 0 when the engine has not said.
+ *
+ * This is how far a row must be stretched VERTICALLY, not the shape of the
+ * finished picture: 720x400 reports 1350 because 400 x 1.35 is 540 and 720x540
+ * is the 4:3 the mode should be seen at, and 320x200 reports 1200 for the same
+ * reason. The display ratio is therefore width / (height x par).
+ *
+ * Worth being exact about, because DOS modes are routinely non-square-pixel
+ * and getting this wrong is the classic emulator tell.
+ */
 int dd_pixel_aspect_x1000(void);
 
 /* ================================================================== */

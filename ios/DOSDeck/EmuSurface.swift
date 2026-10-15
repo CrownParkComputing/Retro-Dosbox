@@ -257,9 +257,20 @@ struct EmuSurface: UIViewRepresentable {
             case 1: wanted = 4.0 / 3.0
             case 2: wanted = 16.0 / 9.0
             default:
-                let reported = dd_pixel_aspect_x1000()
-                wanted = reported > 0
-                    ? frame.width / frame.height * CGFloat(reported) / 1000.0
+                // What the engine reports is the PIXEL aspect -- how far a row
+                // has to be stretched vertically -- and NOT the shape of the
+                // finished picture. 720x400 text mode reports 1.35 because
+                // 400 x 1.35 is 540, and 720x540 is the 4:3 it should be seen
+                // at; 320x200 reports 1.2 for the same reason.
+                //
+                // So it divides into the frame's own ratio. Multiplying by it
+                // -- which is what this did first -- turns 720x400 into a
+                // 2.43:1 letterbox, and treating it AS the display ratio is
+                // right to within a percent in text mode and 11% out in the
+                // 320x200 that most DOS games actually use.
+                let par = CGFloat(dd_pixel_aspect_x1000()) / 1000.0
+                wanted = par > 0
+                    ? frame.width / (frame.height * par)
                     : frame.width / frame.height
             }
             guard wanted > 0 else { return CGRect(origin: .zero, size: view) }
