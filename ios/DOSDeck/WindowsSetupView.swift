@@ -375,7 +375,7 @@ struct WindowsWalkthrough: View {
                                 .padding(12)
                         }
                     }
-                    if win.phase == DD_PHASE_RUN {
+                    if win.phase == Phase.run {
                         Text("Windows is installed. You can put a disc in the drive from "
                            + "the Discs panel at any time.")
                             .font(Theme.tiny)

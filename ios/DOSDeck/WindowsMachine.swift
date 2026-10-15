@@ -26,6 +26,26 @@
 import Combine
 import Foundation
 
+/// The bridge's phases and OS kinds, in the type the bridge's own functions
+/// use.
+///
+/// `enum { DD_PHASE_CREATE = 0, ... }` in C has no name, and Swift imports the
+/// constants of an anonymous enum as `Int` while importing the `int` parameter
+/// beside them as `Int32`. Writing `Int32(DD_PHASE_CREATE)` at each of the
+/// dozen uses would work and would be noise; naming them once is the same
+/// thing said properly.
+enum Phase {
+    static let create   = Int32(DD_PHASE_CREATE)
+    static let install  = Int32(DD_PHASE_INSTALL)
+    static let carryOn  = Int32(DD_PHASE_CONTINUE)
+    static let run      = Int32(DD_PHASE_RUN)
+}
+
+enum OsKind {
+    static let win98   = Int32(DD_OS_WIN98)
+    static let freeDos = Int32(DD_OS_FREEDOS)
+}
+
 final class WindowsMachine: ObservableObject {
 
     @Published private(set) var raw = DDWinMachine()
@@ -33,7 +53,7 @@ final class WindowsMachine: ObservableObject {
     /// Re-read from the folder every time it is asked for, because the truth
     /// about an installation is on disk and not in this object: Setup writes
     /// to the disk image, and the app finds out by looking.
-    @Published private(set) var phase: Int32 = DD_PHASE_CREATE
+    @Published private(set) var phase: Int32 = Phase.create
 
     var confURL: URL { Storage.windows.appendingPathComponent("machine.conf") }
     var batchURL: URL { Storage.windows.appendingPathComponent("GO.BAT") }
@@ -44,7 +64,7 @@ final class WindowsMachine: ObservableObject {
     func load() {
         var m = DDWinMachine()
         if !dd_win_load(Storage.windows.path, &m) {
-            dd_win_defaults(&m, Storage.windows.path, DD_OS_WIN98)
+            dd_win_defaults(&m, Storage.windows.path, OsKind.win98)
         }
         raw = m
         refresh()
@@ -165,12 +185,12 @@ final class WindowsMachine: ObservableObject {
 
     var steps: [Step] {
         [
-            Step(id: DD_PHASE_CREATE,
+            Step(id: Phase.create,
                  title: "Make the disk",
                  detail: "DOSDeck makes an empty hard disk for the machine. "
                        + "Nothing is installed on it yet and it takes a moment.",
                  action: nil),
-            Step(id: DD_PHASE_INSTALL,
+            Step(id: Phase.install,
                  title: "Install from the CD",
                  detail: "The machine boots your Windows 98 CD. Setup runs twice: "
                        + "the first time you partition the disk and it restarts, "
@@ -178,14 +198,14 @@ final class WindowsMachine: ObservableObject {
                  action: "First run: choose to partition, answer Yes to large disk support, "
                        + "then restart.\nSecond run: format the drive, then run Setup and "
                        + "install Windows."),
-            Step(id: DD_PHASE_CONTINUE,
+            Step(id: Phase.carryOn,
                  title: "Let Setup finish",
                  detail: "Windows is on the disk now, so the machine boots the disk and "
                        + "Setup carries on. It restarts itself several times — each one is "
                        + "normal, and DOSDeck boots the right thing every time.",
                  action: "Answer Setup's questions when it asks. Keep the CD in the drive: "
                        + "Windows asks for it until it has copied what it needs."),
-            Step(id: DD_PHASE_RUN,
+            Step(id: Phase.run,
                  title: "Windows is installed",
                  detail: "The machine boots Windows from its own disk. Use the disc list "
                        + "to put a CD in the drive or change it while Windows is running.",
