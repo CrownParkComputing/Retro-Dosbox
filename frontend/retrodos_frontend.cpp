@@ -4112,7 +4112,6 @@ int main(int argc, char **argv)
                     }
                 }
                 else if (page == Page::Media) {
-                    const char *tabs[] = { "CDs", "Floppies", "Hard disks" };
                     /* Asked for one kind from Launch: show only that kind,
                      * with the drive it is for and a way out. Otherwise the
                      * three tabs. */
