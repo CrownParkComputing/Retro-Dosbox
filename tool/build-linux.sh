@@ -9,8 +9,7 @@
 # android/build-core.sh. The Android script cross-compiles and links a shared
 # library for SDLActivity to dlopen; here the frontend owns main() and the
 # engine is linked straight into it, so there is one file to run and nothing
-# to install. Needs: sdl3 (pkg-config), autotools, g++, and optionally
-# libcurl + minizip for the RetroMedia client.
+# to install. Needs: sdl3 (pkg-config), autotools and g++.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -71,16 +70,7 @@ make -k -j"$JOBS" > "$OUT/engine-build.log" 2>&1 || true
 echo "==> building the frontend"
 FE="$OUT/frontend"; mkdir -p "$FE"
 CXXFLAGS="-std=gnu++17 -O2 -g0 -fPIC -Wall -Wno-unused-parameter"
-MEDIA_CFLAGS=""; MEDIA_LIBS=""
-if pkg-config --exists libcurl minizip; then
-    CXXFLAGS="$CXXFLAGS -DRETRODOS_MEDIA_HTTP=1"
-    MEDIA_CFLAGS="$(pkg-config --cflags libcurl minizip)"
-    MEDIA_LIBS="$(pkg-config --libs libcurl minizip)"
-    echo "==> RetroMedia: libcurl $(pkg-config --modversion libcurl), minizip $(pkg-config --modversion minizip)"
-else
-    echo "==> RetroMedia: off (libcurl/minizip not found)"
-fi
-INCS="-I$ROOT/include -I$APP/frontend/imgui $(pkg-config --cflags sdl3) $MEDIA_CFLAGS"
+INCS="-I$ROOT/include -I$APP/frontend/imgui $(pkg-config --cflags sdl3)"
 
 OBJS=""
 for src in "$APP"/frontend/*.cpp "$APP"/frontend/imgui/*.cpp; do
@@ -115,7 +105,7 @@ done
 # shellcheck disable=SC2086
 "$CXX" -o "$OUT/retrodos" $OBJS \
     -Wl,--whole-archive $ARCHIVES "$TREE"/src/*.o -Wl,--no-whole-archive \
-    $(pkg-config --libs sdl3) $LIBS_LINE $EXTRA $MEDIA_LIBS \
+    $(pkg-config --libs sdl3) $LIBS_LINE $EXTRA \
     -lz -lm -ldl -lpthread
 
 # ---------------------------------------------------------------------------

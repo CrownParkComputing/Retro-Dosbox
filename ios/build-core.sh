@@ -165,8 +165,7 @@ make -k -j"$JOBS" || true
 #
 # What is deliberately absent: imgui, retrodos_brand (textures and fonts),
 # retrodos_osk, retrodos_pad, retrodos_touchpad, retrodos_touchmouse,
-# retrodos_media and retrodos_media_http (the artwork downloader -- its absence
-# is also why nothing in this binary can reach a network), retrodos_saf
+# retrodos_saf
 # (Android's storage model) and retrodos_demo. Every one of those is interface
 # or platform plumbing that iOS now has its own version of.
 echo "==> building the bridge and the headless config logic"

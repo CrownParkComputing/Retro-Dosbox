@@ -36,7 +36,6 @@
 #include "retrodos_osk.h"
 #include "retrodos_saf.h"
 #include "retrodos_demo.h"
-#include "retrodos_media.h"
 #include "retrodos_pad.h"
 #include "retrodos_touchpad.h"
 #include "retrodos_touchmouse.h"
@@ -80,7 +79,6 @@ struct Game {
     std::string audio_profile;     /* its sound sections, verbatim */
     bool        is_demo  = false;  /* bundled content: never staged, never scanned */
     bool        is_app   = false;  /* from apps/, shown under Applications */
-    std::string slug;              /* RetroMedia catalogue slug, when matched */
     /* A complete dosbox.conf to use verbatim instead of building one from the
      * Settings. A Windows guest needs sections a DOS game never wants -- a
      * reported DOS version of 7.1, int13 v86 fakery, a particular Sound
@@ -2096,8 +2094,8 @@ int main(int argc, char **argv)
     refresh();
 
     enum class View { Wizard, Shell, Emulator };
-    enum class Page { Launch, Library, Media, Artwork, Downloads,
-                      Settings, Account, Windows, FreeDos, Demo, About };
+    enum class Page { Launch, Library, Media,
+                      Settings, Windows, FreeDos, Demo, About };
     View view = cfg.wizard_done ? View::Shell : View::Wizard;
     Page page = Page::Launch;
     /* The page drawn on the previous frame, so a page can tell that it has
@@ -2233,43 +2231,7 @@ int main(int argc, char **argv)
         }
     };
 
-    /* ---- RetroMedia ---- */
-    retrodos::MediaAccount account;
-    std::string  media_msg;
-    bool         media_busy = false;
-    std::vector<retrodos::MediaGame> catalogue;   /* admin download browser */
     std::map<std::string, SDL_Texture *> art;     /* game name -> box art */
-    std::vector<std::string> art_queue;           /* slugs still to fetch */
-    std::map<std::string, std::string> art_owner; /* slug -> local game name */
-    int  art_done = 0, art_total = 0;
-    bool art_mode = false;        /* this catalogue fetch is for artwork */
-    char m_email[128] = {0}, m_pass[128] = {0}, m_key[160] = {0};
-    char cat_search[128] = {0};
-    char cat_letter = 0;
-
-    SDL_strlcpy(m_email, retrodos::media_last_email().c_str(), sizeof(m_email));
-    /* Default to the owner's email so RetroMedia login is one field, not two,
-     * on a fresh install. Only the identity is filled in -- never a password. */
-    if (m_email[0] == '\0')
-        SDL_strlcpy(m_email, "jonathanmarkwhittingham@gmail.com", sizeof(m_email));
-    if (retrodos::media_available()) retrodos::media_begin_status();
-
-    /* Turn a cached RGBA file into a texture. Uploading happens here, on the
-     * render thread, because that is the only thread allowed to touch the
-     * renderer -- the bridge only ever hands back a path. */
-    auto load_art = [&](const std::string &name, const std::string &path) {
-        int w = 0, h = 0;
-        std::vector<unsigned char> rgba;
-        if (!retrodos::media_read_art(path, w, h, rgba)) return;
-        SDL_Texture *t = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGBA32,
-                                           SDL_TEXTUREACCESS_STATIC, w, h);
-        if (!t) return;
-        SDL_UpdateTexture(t, nullptr, rgba.data(), w * 4);
-        SDL_SetTextureScaleMode(t, SDL_SCALEMODE_LINEAR);
-        auto it = art.find(name);
-        if (it != art.end() && it->second) SDL_DestroyTexture(it->second);
-        art[name] = t;
-    };
     /*
      * Box art from the artwork folder, named after the game: "Doom/" pairs
      * with "Doom.png" or "Doom.jpg". It needs no account and no network, and
@@ -2972,109 +2934,6 @@ int main(int argc, char **argv)
                 retrodos_host_joystick(0, jmask, gp_axis_x, gp_axis_y);
             }
         }
-
-        /* Drain finished network work. Everything the bridge does is async, so
-         * this is where results become UI state -- never on the caller's side
-         * of a begin_*(), which returns long before the server answers. */
-        {
-            retrodos::MediaResult mr;
-            while (retrodos::media_poll(mr)) {
-                if (mr.op != retrodos::MediaOp::Artwork) media_busy = false;
-                if (!mr.message.empty()) media_msg = mr.message;
-
-                switch (mr.op) {
-                case retrodos::MediaOp::Status:
-                case retrodos::MediaOp::Login:
-                    account = mr.account;
-                    if (mr.ok && account.signed_in) {
-                        /* The password has served its purpose; the session is
-                         * what persists. Do not leave it sitting in a buffer. */
-                        SDL_memset(m_pass, 0, sizeof(m_pass));
-                        SDL_memset(m_key,  0, sizeof(m_key));
-                        /* No "signed in" banner: the Artwork page states the
-                         * account directly below, and saying it twice reads as
-                         * a bug. Only a FAILURE needs a message here. */
-                        if (mr.ok) media_msg.clear();
-                    }
-                    break;
-
-                case retrodos::MediaOp::Logout:
-                    account = retrodos::MediaAccount();
-                    catalogue.clear();
-                    break;
-
-                case retrodos::MediaOp::Catalogue:
-                    if (!mr.ok) break;
-                    catalogue = mr.games;
-                    if (art_mode) {
-                        art_mode = false;
-                        /* This catalogue was fetched to find artwork, not to
-                         * browse: match it against the library and queue only
-                         * the titles we actually have. */
-                        std::map<std::string, const retrodos::MediaGame *> by_key;
-                        for (const auto &cg : mr.games) by_key[canon(cg.title)] = &cg;
-                        art_queue.clear();
-                        art_owner.clear();
-                        for (auto &g : games) {
-                            if (g.is_demo) continue;
-                            auto it = by_key.find(canon(g.name));
-                            if (it == by_key.end() || it->second->preview.empty()) continue;
-                            g.slug = it->second->slug;
-                            art_owner[g.slug] = g.name;
-                            art_queue.push_back(g.slug);
-                        }
-                        art_total = (int)art_queue.size();
-                        art_done  = 0;
-                        media_msg = art_total ? ("Matched " + std::to_string(art_total) +
-                                                 " of " + std::to_string(games.size()))
-                                              : "No titles matched the catalogue";
-                        /* Kick the first fetch; the rest follow one at a time as
-                         * each result lands, so a big library does not open
-                         * hundreds of sockets at once. */
-                        if (!art_queue.empty()) {
-                            const std::string slug = art_queue.back();
-                            art_queue.pop_back();
-                            for (const auto &cg : mr.games)
-                                if (cg.slug == slug) {
-                                    retrodos::media_begin_artwork(slug, cg.preview);
-                                    break;
-                                }
-                        }
-                    }
-                    break;
-
-                case retrodos::MediaOp::Artwork:
-                    if (mr.ok && !mr.art.path.empty()) {
-                        auto own = art_owner.find(mr.art.slug);
-                        if (own != art_owner.end()) load_art(own->second, mr.art.path);
-                    }
-                    ++art_done;
-                    if (!art_queue.empty()) {
-                        const std::string slug = art_queue.back();
-                        art_queue.pop_back();
-                        for (const auto &cg : catalogue)
-                            if (cg.slug == slug) {
-                                retrodos::media_begin_artwork(slug, cg.preview);
-                                break;
-                            }
-                    } else {
-                        media_busy = false;
-                        if (art_total) media_msg = "Artwork: " + std::to_string(art_done) +
-                                                   " of " + std::to_string(art_total);
-                        art_total = 0;
-                    }
-                    break;
-
-                case retrodos::MediaOp::Download:
-                    /* The game is on disk now, so the library is stale. */
-                    if (mr.ok) refresh();
-                    break;
-
-                default: break;
-                }
-            }
-        }
-
 
         /* ImGui's SDL_Renderer backend sets a clip rect per draw command;
          * reset the render state so each frame starts from a known one. */
@@ -3995,19 +3854,6 @@ int main(int argc, char **argv)
                 ImGui::Spacing();
                 ImGui::Separator();
 
-                if (retrodos::media_available()) {
-                    /* One "RetroMedia" entry; Login (the account), Artwork and
-                     * -- for an admin -- Downloads are tabs across the top of
-                     * it. There is no separate Account entry. */
-                    const bool on_media = page == Page::Account ||
-                                          page == Page::Artwork || page == Page::Downloads;
-                    if (on_media) ImGui::PushStyleColor(ImGuiCol_Button,
-                                      ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                    if (ImGui::Button("RetroMedia", ImVec2(bw, bh)) && !on_media) {
-                        page = Page::Account; selected = -1;
-                    }
-                    if (on_media) ImGui::PopStyleColor();
-                }
 
                 ImGui::Spacing();
                 ImGui::Separator();
@@ -4670,355 +4516,6 @@ int main(int argc, char **argv)
                     }
                 }
 
-                /* ---- Artwork ---- */
-                else if (page == Page::Artwork) {
-                    {
-                        /* Login, Artwork, Downloads(admin) -- one screen. */
-                        const bool admin = retrodos::media_downloads_available() &&
-                                           account.signed_in && account.is_admin;
-                        struct MT { const char *label; Page pg; bool show; };
-                        const MT mts[] = {
-                            { "Login",     Page::Account,   true },
-                            { "Artwork",   Page::Artwork,   true },
-                            { "Downloads", Page::Downloads, admin },
-                        };
-                        int n = 0; for (const MT &m : mts) if (m.show) ++n;
-                        const float tw = (cw - ImGui::GetStyle().ItemSpacing.x * (float)(n - 1)) / (float)n;
-                        bool first = true;
-                        for (const MT &m : mts) {
-                            if (!m.show) continue;
-                            if (!first) ImGui::SameLine();
-                            first = false;
-                            const bool on = page == m.pg;
-                            if (on) ImGui::PushStyleColor(ImGuiCol_Button,
-                                        ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                            if (ImGui::Button(m.label, ImVec2(tw, 0)) && !on) { page = m.pg; }
-                            if (on) ImGui::PopStyleColor();
-                        }
-                        ImGui::Spacing();
-                    }
-                    ImGui::TextUnformatted("Artwork");
-                    ImGui::Separator();
-
-                    if (!media_msg.empty()) {
-                        ImGui::TextWrapped("%s", media_msg.c_str());
-                        ImGui::Separator();
-                    }
-
-                    if (!account.signed_in) {
-                        /* The sign-in form itself lives on Account. Two copies
-                         * of it would be two places to fix, and this page has
-                         * nothing to say until there is an account. */
-                        ImGui::TextWrapped("Box art comes from your RetroMedia account.");
-                        ImGui::Spacing();
-                        if (ImGui::Button("Sign in", ImVec2(cw * 0.4f, 0)))
-                            page = Page::Account;
-                    } else {
-                        ImGui::TextDisabled("Signed in as %s", account.email.c_str());
-                        ImGui::Spacing();
-                        ImGui::TextWrapped("Match your library against the DOS catalogue and "
-                                           "fetch box art for every title found.");
-                        ImGui::BeginDisabled(media_busy || games.empty());
-                        if (ImGui::Button("Get artwork for my library")) {
-                            media_busy = true; art_mode = true;
-                            art_total = 1; art_done = 0;
-                            media_msg = "Fetching catalogue...";
-                            retrodos::media_begin_catalogue("", "", false);
-                        }
-                        ImGui::EndDisabled();
-                        if (art_total > 0 && art_done <= art_total)
-                            ImGui::Text("%d / %d", art_done, art_total);
-                        ImGui::Text("Cached: %zu", art.size());
-                    }
-                }
-
-                /* ---- Account ---- */
-                else if (page == Page::Account) {
-                    {
-                        /* Login, Artwork, Downloads(admin) -- one screen. */
-                        const bool admin = retrodos::media_downloads_available() &&
-                                           account.signed_in && account.is_admin;
-                        struct MT { const char *label; Page pg; bool show; };
-                        const MT mts[] = {
-                            { "Login",     Page::Account,   true },
-                            { "Artwork",   Page::Artwork,   true },
-                            { "Downloads", Page::Downloads, admin },
-                        };
-                        int n = 0; for (const MT &m : mts) if (m.show) ++n;
-                        const float tw = (cw - ImGui::GetStyle().ItemSpacing.x * (float)(n - 1)) / (float)n;
-                        bool first = true;
-                        for (const MT &m : mts) {
-                            if (!m.show) continue;
-                            if (!first) ImGui::SameLine();
-                            first = false;
-                            const bool on = page == m.pg;
-                            if (on) ImGui::PushStyleColor(ImGuiCol_Button,
-                                        ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                            if (ImGui::Button(m.label, ImVec2(tw, 0)) && !on) { page = m.pg; }
-                            if (on) ImGui::PopStyleColor();
-                        }
-                        ImGui::Spacing();
-                    }
-                    ImGui::TextUnformatted("RetroMedia account");
-                    ImGui::Separator();
-
-                    if (!media_msg.empty()) {
-                        ImGui::TextWrapped("%s", media_msg.c_str());
-                        ImGui::Separator();
-                    }
-
-                    if (account.signed_in) {
-                        ImGui::Text("Signed in as %s", account.email.c_str());
-                        if (account.is_admin) ImGui::TextUnformatted("Administrator");
-                        else ImGui::TextDisabled("Standard account - artwork only");
-                        ImGui::Text("Credits: %d    Free today: %d",
-                                    account.credits, account.free_remaining);
-                        ImGui::Spacing();
-                        if (ImGui::Button("Sign out")) {
-                            media_busy = true; retrodos::media_begin_logout();
-                        }
-                        ImGui::Spacing();
-                        ImGui::Separator();
-                        ImGui::Spacing();
-                        if (ImGui::Button("Get artwork for my library", ImVec2(cw * 0.5f, 0)))
-                            page = Page::Artwork;
-                        if (retrodos::media_downloads_available() && account.is_admin) {
-                            ImGui::SameLine();
-                            if (ImGui::Button("Downloads")) page = Page::Downloads;
-                        }
-                    } else {
-                        ImGui::TextWrapped("Sign in to media.crownparkcomputing.com for box "
-                                           "art. Administrators can also download games.");
-                        ImGui::Spacing();
-
-                        /* Email and password first, because that is how
-                         * people sign in. */
-                        ImGui::SetNextItemWidth(cw * 0.55f);
-                        ImGui::InputText("Email", m_email, sizeof(m_email));
-                        ImGui::SetNextItemWidth(cw * 0.55f);
-                        ImGui::InputText("Password", m_pass, sizeof(m_pass),
-                                         ImGuiInputTextFlags_Password);
-                        ImGui::BeginDisabled(media_busy || !m_email[0] || !m_pass[0]);
-                        if (ImGui::Button("Sign in")) {
-                            media_busy = true; media_msg = "Signing in...";
-                            retrodos::media_begin_login(m_email, m_pass);
-                        }
-                        ImGui::EndDisabled();
-
-                        ImGui::Spacing();
-                        ImGui::Separator();
-                        ImGui::Spacing();
-                        /* An API key stays as the alternative: it is revocable
-                         * from the website and is the better thing to leave
-                         * behind on a shared handheld. */
-                        ImGui::TextWrapped("Or paste an API key from your account page "
-                                           "(it starts with rmk_):");
-                        ImGui::SetNextItemWidth(cw * 0.55f);
-                        ImGui::InputText("API key", m_key, sizeof(m_key),
-                                         ImGuiInputTextFlags_Password);
-                        ImGui::BeginDisabled(media_busy || !m_key[0]);
-                        if (ImGui::Button("Use API key")) {
-                            media_busy = true; media_msg = "Checking key...";
-                            retrodos::media_begin_login_key(m_key);
-                        }
-                        ImGui::EndDisabled();
-                        ImGui::SameLine();
-                        if (ImGui::SmallButton("Paste")) {
-                            if (char *clip = SDL_GetClipboardText()) {
-                                SDL_strlcpy(m_key, clip, sizeof(m_key));
-                                SDL_free(clip);
-                            }
-                        }
-                    }
-                }
-
-                /* ---- Downloads (admin) ---- */
-                else if (page == Page::Downloads) {
-                    {
-                        /* Login, Artwork, Downloads(admin) -- one screen. */
-                        const bool admin = retrodos::media_downloads_available() &&
-                                           account.signed_in && account.is_admin;
-                        struct MT { const char *label; Page pg; bool show; };
-                        const MT mts[] = {
-                            { "Login",     Page::Account,   true },
-                            { "Artwork",   Page::Artwork,   true },
-                            { "Downloads", Page::Downloads, admin },
-                        };
-                        int n = 0; for (const MT &m : mts) if (m.show) ++n;
-                        const float tw = (cw - ImGui::GetStyle().ItemSpacing.x * (float)(n - 1)) / (float)n;
-                        bool first = true;
-                        for (const MT &m : mts) {
-                            if (!m.show) continue;
-                            if (!first) ImGui::SameLine();
-                            first = false;
-                            const bool on = page == m.pg;
-                            if (on) ImGui::PushStyleColor(ImGuiCol_Button,
-                                        ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                            if (ImGui::Button(m.label, ImVec2(tw, 0)) && !on) { page = m.pg; }
-                            if (on) ImGui::PopStyleColor();
-                        }
-                        ImGui::Spacing();
-                    }
-                    /* The page can outlive its own preconditions: signing out
-                     * while it is open would otherwise leave a download button
-                     * on screen that the server will refuse. */
-                    if (!retrodos::media_downloads_available() ||
-                        !account.signed_in || !account.is_admin) {
-                        page = Page::Library;
-                    }
-                    ImGui::TextUnformatted("Downloads");
-                    ImGui::Separator();
-
-                    if (!media_msg.empty()) {
-                        ImGui::TextWrapped("%s", media_msg.c_str());
-                    }
-                    {   /* A 1 GB title is minutes of otherwise silent work, and a
-                         * screen that looks frozen invites a second press. */
-                        const std::string prog = retrodos::media_progress();
-                        if (!prog.empty()) {
-                            ImGui::TextWrapped("%s", prog.c_str());
-                            float frac = -1.0f;
-                            const size_t pc = prog.rfind('%');
-                            if (pc != std::string::npos && pc > 0) {
-                                const size_t b = prog.rfind('(', pc);
-                                if (b != std::string::npos)
-                                    frac = (float)atof(prog.c_str() + b + 1) / 100.0f;
-                            }
-                            if (frac >= 0.0f && frac <= 1.0f)
-                                ImGui::ProgressBar(frac, ImVec2(cw * 0.6f, 0.0f));
-                            else
-                                ImGui::ProgressBar(-1.0f * (float)ImGui::GetTime(),
-                                                   ImVec2(cw * 0.6f, 0.0f), "working");
-                        }
-                    }
-                    ImGui::Separator();
-
-                    /*
-                     * The whole catalogue is fetched once and filtered here.
-                     *
-                     * It used to send the search and the letter to the server
-                     * and re-fetch -- which meant nothing happened at all until
-                     * you noticed the Browse button and pressed it again. A
-                     * filter that needs a second button is a filter that looks
-                     * broken. There are a few hundred titles and they are
-                     * already in memory, so filtering is instant and, unlike
-                     * the round trip, cannot half-work.
-                     */
-                    ImGui::SetNextItemWidth(cw * 0.45f);
-                    ImGui::InputTextWithHint("##csearch", "Search catalogue...",
-                                             cat_search, sizeof(cat_search));
-                    ImGui::SameLine();
-                    ImGui::BeginDisabled(media_busy);
-                    if (ImGui::Button(catalogue.empty() ? "Load catalogue" : "Refresh")) {
-                        media_busy = true; art_mode = false;
-                        media_msg = "Loading catalogue...";
-                        cat_letter = 0;
-                        cat_search[0] = 0;
-                        retrodos::media_begin_catalogue("", "", true);
-                    }
-                    ImGui::EndDisabled();
-
-                    /* Only the letters with something behind them, the same
-                     * rule the DOS Library follows: every chip a promise. */
-                    if (!catalogue.empty()) {
-                        bool has[27] = { false };
-                        auto initial_of = [](const std::string &t) -> char {
-                            const char c = t.empty() ? '#'
-                                         : (char)SDL_toupper((unsigned char)t[0]);
-                            return (c >= 'A' && c <= 'Z') ? c : '#';
-                        };
-                        for (const retrodos::MediaGame &g : catalogue) {
-                            const char c = initial_of(g.title);
-                            if (c == '#') has[26] = true; else has[c - 'A'] = true;
-                        }
-                        if (cat_letter) {
-                            const bool still = (cat_letter == '#')
-                                ? has[26]
-                                : (cat_letter >= 'A' && cat_letter <= 'Z' &&
-                                   has[cat_letter - 'A']);
-                            if (!still) cat_letter = 0;
-                        }
-
-                        int count = 1;
-                        for (bool b : has) if (b) ++count;
-                        const float gapx = 3.0f;
-                        const float cell = (ImGui::GetContentRegionAvail().x -
-                                            gapx * (float)(count - 1)) / (float)count;
-                        bool first = true;
-                        auto chip = [&](const char *label, char value) {
-                            if (!first) ImGui::SameLine(0.0f, gapx);
-                            first = false;
-                            const bool on = (cat_letter == value);
-                            if (on) ImGui::PushStyleColor(ImGuiCol_Button,
-                                        ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-                            if (ImGui::Button(label, ImVec2(cell, 0)))
-                                cat_letter = on ? 0 : value;
-                            if (on) ImGui::PopStyleColor();
-                        };
-                        chip("All", 0);
-                        for (char c = 'A'; c <= 'Z'; ++c) {
-                            if (!has[c - 'A']) continue;
-                            ImGui::PushID(1000 + c);
-                            const char lbl[2] = { c, 0 };
-                            chip(lbl, c);
-                            ImGui::PopID();
-                        }
-                        if (has[26]) chip("#", '#');
-                    }
-
-                    std::vector<int> cshown;
-                    cshown.reserve(catalogue.size());
-                    for (int i = 0; i < (int)catalogue.size(); ++i) {
-                        const std::string &t = catalogue[i].title;
-                        if (cat_letter) {
-                            const char c0 = t.empty() ? '#'
-                                          : (char)SDL_toupper((unsigned char)t[0]);
-                            const char ini = (c0 >= 'A' && c0 <= 'Z') ? c0 : '#';
-                            if (ini != cat_letter) continue;
-                        }
-                        if (cat_search[0] && !SDL_strcasestr(t.c_str(), cat_search)) continue;
-                        cshown.push_back(i);
-                    }
-
-                    if (catalogue.empty())
-                        ImGui::TextDisabled("Press Load catalogue.");
-                    else
-                        ImGui::Text("%zu of %zu titles", cshown.size(), catalogue.size());
-
-                    ImGui::BeginChild("##cat");
-                    scroll_by_drag();
-                    /* Rows are given room: at arm's length a list packed at text
-                     * height is easy to mis-tap, and a mis-tap here starts a
-                     * download that can run to a gigabyte. */
-                    const float row_h = ImGui::GetFrameHeight() * 1.7f;
-                    ImGuiListClipper clip;
-                    clip.Begin((int)cshown.size(), row_h);
-                    while (clip.Step()) {
-                        for (int r = clip.DisplayStart; r < clip.DisplayEnd; ++r) {
-                            const retrodos::MediaGame &cg = catalogue[cshown[r]];
-                            ImGui::PushID(r);
-                            ImGui::AlignTextToFramePadding();
-                            ImGui::TextUnformatted(cg.title.c_str());
-                            ImGui::SameLine(cw * 0.58f);
-                            ImGui::AlignTextToFramePadding();
-                            ImGui::TextDisabled("%.1f MB",
-                                                (double)cg.bytes / (1024.0 * 1024.0));
-                            ImGui::SameLine(cw * 0.78f);
-                            ImGui::BeginDisabled(media_busy || cg.rom_files == 0);
-                            if (ImGui::Button(cg.rom_files ? "Download" : "No files")) {
-                                media_busy = true;
-                                media_msg = "Downloading " + cg.title + "...";
-                                retrodos::media_begin_download(cg.slug, cfg.library_root);
-                            }
-                            ImGui::EndDisabled();
-                            const float used = ImGui::GetFrameHeight();
-                            if (row_h > used) ImGui::Dummy(ImVec2(0.0f, row_h - used));
-                            ImGui::PopID();
-                        }
-                    }
-                    ImGui::EndChild();
-                }
-
                 /* ---- Machine settings ---- */
                 else if (page == Page::Settings) {
                     static Settings edit;
@@ -5572,9 +5069,6 @@ int main(int argc, char **argv)
                     ImGui::Spacing();
                     ImGui::TextWrapped("Library: %s", root_label(cfg.library_root).c_str());
                     ImGui::TextWrapped("Games installed: %zu", games.size());
-                    if (account.signed_in)
-                        ImGui::TextWrapped("RetroMedia: %s%s", account.email.c_str(),
-                                           account.is_admin ? " (administrator)" : "");
 
                     /* Licences and where the source is.
                      *

@@ -43,15 +43,11 @@ class MainActivity : SDLActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         SafBridge.activity = this
-        /* MediaBridge needs a Context for SharedPreferences and the Keystore;
-         * it never touches the UI, but it cannot reach either without one. */
-        MediaBridge.activity = this
         super.onCreate(savedInstanceState)
     }
 
     override fun onDestroy() {
         SafBridge.activity = null
-        MediaBridge.activity = null
         super.onDestroy()
     }
 

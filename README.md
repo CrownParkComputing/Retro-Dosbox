@@ -13,7 +13,7 @@ in the same process as the core.
 ## Layout
 
     core/       DOSBox-X, ported to SDL3   (submodule: CrownParkComputing/dosbox-x-sdl3)
-    frontend/   the launcher: library, settings, on-screen controls, RetroMedia
+    frontend/   the launcher: library, settings, on-screen controls, setup walkthrough
     android/    the Android application and its build script
     ios/        the iOS application, its build script and its signing material
     demo/       bundled content, and the source that generates it
@@ -92,9 +92,7 @@ than failing later inside the compiler.
 
 The same frontend and core as the phone, linked into one native executable
 with the system SDL3. Nothing is installed: run the binary where it was built,
-since it reads `assets/` and `demo/` from beside itself. With libcurl and
-minizip present the RetroMedia client is compiled in; without them the pages
-are simply hidden. The games folder is chosen on first run, the same as on a
+since it reads `assets/` and `demo/` from beside itself. The games folder is chosen on first run, the same as on a
 handheld, and the Windows and FreeDOS setup walkthroughs work identically --
 which makes this the quickest place to try a change to either before a device
 build.
@@ -146,11 +144,11 @@ never agreed on a control scheme — Keen jumps on Ctrl and pogos on Alt, Descen
 wants the arrows and six degrees of freedom. Presets are provided and the
 mapping can be changed from the in-game menu, while the game is on screen.
 
-## RetroMedia
+## Artwork
 
-Signing in to `media.crownparkcomputing.com` fetches box art. Administrators
-can also download games. Downloads are gated on the platform as well as the
-account: an App Store build does not offer them at all.
+Box art is local: a PNG or JPEG in `<folder>/artwork/` named exactly like the
+game's folder (`Doom/` -> `Doom.png`). There is no account and no network
+access; the app does not ask for the Internet permission.
 
 ## Licensing
 

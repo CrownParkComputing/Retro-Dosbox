@@ -82,9 +82,9 @@ SDL_Texture *wordmark(SDL_Renderer *renderer, int *out_w, int *out_h);
  * understands.
  *
  * It lives here because stb_image can only be instantiated once in a binary,
- * and this is the file that instantiates it. The RetroMedia client is the
- * other caller: box art arrives as PNG or JPEG and has to reach the frontend
- * as pixels.
+ * and this is the file that instantiates it. The other caller is box art
+ * from the artwork folder, which is PNG or JPEG and has to reach the
+ * frontend as pixels.
  */
 bool decode_image(const unsigned char *data, size_t size,
                   int max_w, int max_h, int &w, int &h,
