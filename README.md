@@ -41,7 +41,7 @@ artwork -- and a non-empty one wins over an empty folder of the default name.
 
 ## First-run setup
 
-The same walkthrough runs on Android and iOS (DOSDeck), one step at a time:
+On Android (and the Linux build) the walkthrough runs one step at a time:
 Welcome (what games, apps, discs and machines are) -> Your folder (pick it on
 Android; on iOS it is the app's own folder in Files) with what was found in
 it -> Games and apps, with live counts -> Discs, sorted into dos/, windows/
@@ -50,6 +50,12 @@ to the same step (a "Back to setup" button is on the emulator strip, and the
 step is saved so an Android restart between engine runs still returns) ->
 Windows 98 and FreeDOS, optional, each opening its installer with "Back to
 setup" on the rail -> Controls and artwork -> Ready, a summary.
+
+DOSDeck on iOS has its own SwiftUI guide (`ios/DOSDeck/SetupGuide.swift`),
+shown once before the front door and reopened from its footer: Welcome ->
+Your folders (DOS, Discs and Windows in the Files app, with counts) -> Your
+software -> Discs -> Windows 98 (optional; opens the Windows wizard) ->
+Controls -> Ready, with the demo one tap away.
 
 The rail is Launch, Library, Media, Windows, FreeDOS. Library lists games and
 applications together with an A-Z / 0-9 strip and a search modal; tapping a

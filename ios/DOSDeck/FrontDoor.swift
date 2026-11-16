@@ -93,6 +93,9 @@ struct FrontDoor: View {
                 .font(Theme.tiny)
                 .foregroundColor(Theme.amberDim)
             Spacer()
+            Button("Setup guide") { onChoose(.guide) }
+                .font(Theme.small)
+                .foregroundColor(Theme.amber)
             Button("About") { showAbout = true }
                 .font(Theme.small)
                 .foregroundColor(Theme.amber)

@@ -124,6 +124,7 @@ set(SWIFT_SOURCES
   "${SWIFT_DIR}/Zip.swift"               # unpacking an archive into a mountable folder
   "${SWIFT_DIR}/Engine.swift"            # the one session, and what can be done inside it
   "${SWIFT_DIR}/EmuSurface.swift"        # Metal, fed by the engine's framebuffer tap
+  "${SWIFT_DIR}/SetupGuide.swift"        # the first-run walkthrough
   "${SWIFT_DIR}/FrontDoor.swift"         # Windows or DOS, and About
   "${SWIFT_DIR}/DosSetupView.swift"      # the DOS wizard
   "${SWIFT_DIR}/WindowsMachine.swift"    # the Windows machine and its phases
