@@ -29,8 +29,8 @@ APP="$(dirname "$HERE")"
 CORE="$APP/core"
 
 [ -f "$CORE/include/retrodos_host.h" ] || {
-    echo "error: the core submodule is not initialised." >&2
-    echo "       git submodule update --init" >&2; exit 1; }
+    echo "error: the core is missing at $CORE; it is part of this repository" >&2
+    exit 1; }
 
 IOS_PLATFORM="${IOS_PLATFORM:-iphoneos}"
 DEPLOY="${IOS_DEPLOYMENT_TARGET:-15.0}"

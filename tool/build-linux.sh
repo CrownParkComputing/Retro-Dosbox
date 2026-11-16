@@ -21,7 +21,7 @@ JOBS="${JOBS:-$(nproc)}"
 CXX="${CXX:-g++}"
 
 [ -f "$ROOT/configure.ac" ] || {
-    echo "error: core/ is empty. Run: git submodule update --init" >&2; exit 1; }
+    echo "error: core/ is missing; it is part of this repository" >&2; exit 1; }
 pkg-config --exists sdl3 || { echo "error: sdl3 not found by pkg-config" >&2; exit 1; }
 echo "==> SDL3 $(pkg-config --modversion sdl3)"
 mkdir -p "$OUT"

@@ -25,9 +25,6 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
-          # The core is a submodule and the bundle is worthless without it: an
-          # AAB with no libretrodos.so installs, starts, and cannot run a game.
-          submodules: recursive
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4

@@ -23,14 +23,13 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP="$(cd "$HERE/.." && pwd)"          # this repository: the application
-ROOT="$APP/core"                       # the DOSBox-X SDL3 fork, as a submodule
+ROOT="$APP/core"                       # the DOSBox-X SDL3 fork, in-tree
 
-# The core is a submodule, so a fresh clone has an empty directory here until
-# it is initialised. Say so plainly rather than failing later with a confusing
-# "no such file" from the compiler.
+# Say so plainly if the core is missing rather than failing later with a
+# confusing "no such file" from the compiler.
 if [ ! -f "$ROOT/include/retrodos_host.h" ]; then
     echo "error: the core is missing at $ROOT" >&2
-    echo "       run: git submodule update --init --recursive" >&2
+    echo "       it is part of this repository; check out core/ again" >&2
     exit 1
 fi
 

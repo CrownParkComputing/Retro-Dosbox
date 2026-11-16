@@ -12,16 +12,21 @@ in the same process as the core.
 
 ## Layout
 
-    core/       DOSBox-X, ported to SDL3   (submodule: CrownParkComputing/dosbox-x-sdl3)
+    core/       DOSBox-X, ported to SDL3   (in-tree; see core/UPSTREAM)
     frontend/   the launcher: library, settings, on-screen controls, setup walkthrough
     android/    the Android application and its build script
     ios/        the iOS application, its build script and its signing material
     demo/       bundled content, and the source that generates it
 
-The core is a **submodule rather than a copy**. It is a fork of DOSBox-X with
-upstream still attached, which is what keeps its changes mergeable; vendoring
-the tree into this repository would end that and duplicate several gigabytes of
-sources for nothing.
+The core lives **in this repository**, so one checkout builds Android, iOS and
+Linux. It is DOSBox-X with our SDL3 port and the `retrodos_host` embedding API
+on top. `core/UPSTREAM` records the upstream release it is merged up to, and
+`tool/update-core.sh` merges a newer one (three-way, so only real conflicts
+need attention):
+
+    tool/update-core.sh              # latest upstream release tag
+    tool/update-core.sh <ref>        # or a specific tag/commit
+    tool/update-core.sh --finish     # after resolving any conflicts
 
 ## Where things live
 
@@ -78,7 +83,7 @@ nothing is moved when the folder changes.
 
 ## Building
 
-    git clone --recurse-submodules https://github.com/CrownParkComputing/Retro-Dosbox.git
+    git clone https://github.com/CrownParkComputing/Retro-Dosbox.git
     cd Retro-Dosbox/android
     ./build-core.sh          # cross-compiles the core and the frontend
     gradle assembleDebug
@@ -89,8 +94,8 @@ frontend, links `libretrodos.so`, and installs the result into
 is not a convenience: without it Gradle reports BUILD SUCCESSFUL while shipping
 the previous library.
 
-If the submodule has not been initialised the script stops and says so, rather
-than failing later inside the compiler.
+If `core/` is missing the script stops and says so, rather than failing later
+inside the compiler.
 
 ### Linux desktop
 

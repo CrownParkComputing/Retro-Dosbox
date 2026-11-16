@@ -2,8 +2,8 @@ name: frontend
 
 # Deliberately not a full Android build. Cross-compiling SDL3 and DOSBox-X for
 # every push costs twenty minutes and fails for reasons that have nothing to do
-# with the change being tested; the core has its own CI in the submodule's
-# repository. What is checked here is what this repository actually owns.
+# with the change being tested. What is checked here is that the frontend
+# compiles against the in-tree core's headers.
 
 on:
   push:
@@ -18,7 +18,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
 
       - name: Install SDL3
         run: |
