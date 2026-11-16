@@ -71,3 +71,38 @@ else:
     with open(path, "w") as f:
         f.write(text)
     print("    configure.ac: patched (frameworks + metal)")
+
+
+# ---------------------------------------------------------------------------
+# Drop opusfile's HTTP client from the build.
+#
+# An App Store build of this app must not be able to reach the network -- the
+# review notes say so in as many words, and build-core.sh fails the build if
+# the finished library imports a socket call. Bringing the core in-tree pulled
+# in a newer opusfile whose http.c is an HTTP/HTTPS client for streaming Opus
+# over the network, compiled unconditionally into libopusint.a. That is where
+# _accept, _bind, _connect, _listen and _socket were coming from.
+#
+# Nothing uses it. http.c's only public symbols are op_url_stream_create and
+# op_url_stream_vcreate, and neither is referenced anywhere else in the tree:
+# DOSBox-X decodes Opus from files on disk, never from a URL. This vendored
+# copy predates upstream opusfile's OP_DISABLE_HTTP guard, so there is no
+# define to set -- the file has to leave the source list.
+#
+# Patched in the staged tree rather than in core/, so the in-tree import stays
+# a clean copy of upstream and `tool/update-core.sh` keeps working.
+decoders = os.path.join(TREE, "src", "libs", "decoders", "internal", "Makefile.am")
+HTTP_LINE = "    opusfile/http.c \\\n"
+
+if not os.path.exists(decoders):
+    sys.exit(f"error: {decoders} not found - has upstream moved the decoders?")
+
+with open(decoders) as f:
+    dec = f.read()
+
+if HTTP_LINE not in dec:
+    print("    decoders/Makefile.am: opusfile/http.c already gone")
+else:
+    with open(decoders, "w") as f:
+        f.write(dec.replace(HTTP_LINE, "", 1))
+    print("    decoders/Makefile.am: dropped opusfile/http.c (no network in an App Store build)")
