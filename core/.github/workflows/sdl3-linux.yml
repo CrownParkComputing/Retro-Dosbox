@@ -1,0 +1,143 @@
+name: SDL3 Linux build
+
+# The gate for the SDL3 port: does the tree still compile against SDL3, link
+# ONLY libSDL3, and boot DOS? Upstream's own workflows are disabled on this
+# fork (via the API, not by editing their files, so upstream merges stay clean).
+
+on:
+  push:
+    branches: [ sdl3 ]
+  pull_request:
+    branches: [ sdl3 ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # SDL3 is not packaged on the ubuntu-latest runners yet, so it is built from
+  # source and cached. Pin it: an SDL3 bump should be a deliberate commit, not
+  # something a green build quietly picks up.
+  SDL3_VERSION: "3.2.20"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y --no-install-recommends \
+            build-essential automake autoconf libtool nasm pkg-config \
+            libncurses-dev libpng-dev libpcap-dev libslirp-dev \
+            libglib2.0-dev libx11-dev libxrandr-dev libxkbfile-dev \
+            libasound2-dev cmake ninja-build
+
+      - name: Cache SDL3
+        id: cache-sdl3
+        uses: actions/cache@v4
+        with:
+          path: ~/sdl3-install
+          key: sdl3-${{ env.SDL3_VERSION }}-${{ runner.os }}
+
+      - name: Build SDL3 from source
+        if: steps.cache-sdl3.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "release-${SDL3_VERSION}" \
+            https://github.com/libsdl-org/SDL.git /tmp/SDL
+          cmake -S /tmp/SDL -B /tmp/SDL/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$HOME/sdl3-install" \
+            -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST_LIBRARY=OFF
+          cmake --build /tmp/SDL/build
+          cmake --install /tmp/SDL/build
+
+      - name: Expose SDL3 to pkg-config
+        run: |
+          echo "PKG_CONFIG_PATH=$HOME/sdl3-install/lib/pkgconfig:$HOME/sdl3-install/lib64/pkgconfig" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=$HOME/sdl3-install/lib:$HOME/sdl3-install/lib64" >> $GITHUB_ENV
+
+      - name: Verify SDL3 is visible
+        run: pkg-config --modversion sdl3
+
+      - name: Generate build info
+        run: |
+          export shortsha=$(echo "${GITHUB_SHA}" | cut -c1-7)
+          export updatestr=$(git show -s --format=%at | xargs -I# date -d @# +'%b %d, %Y %I:%M:%S%P')
+          export copyrightyear=$(git show -s --format=%at | xargs -I# date -d @# +'%Y')
+          echo '/* auto generated */' > include/build_timestamp.h
+          echo "#define UPDATED_STR \"${updatestr}\"" >> include/build_timestamp.h
+          echo "#define GIT_COMMIT_HASH \"${shortsha}\"" >> include/build_timestamp.h
+          echo "#define COPYRIGHT_END_YEAR \"${copyrightyear}\"" >> include/build_timestamp.h
+
+      - name: autogen
+        run: ./autogen.sh
+
+      # This is the configuration the SDL3 port is currently known-good in.
+      # freetype/TTF and the OpenGL output backend are NOT yet ported to SDL3
+      # (~120 call sites between them) and are disabled deliberately, not
+      # accidentally -- see docs in the Retro-Dosbox repo.
+      - name: configure (SDL3)
+        run: |
+          ./configure --enable-sdl3 \
+            --disable-opengl --disable-printer --disable-sdlnet \
+            --disable-freetype --disable-libfluidsynth \
+            --prefix=/usr \
+            CFLAGS="-g -std=gnu11 -O2" \
+            CXXFLAGS="-g -std=gnu++14 -O2 -msse"
+
+      - name: Confirm SDL3 was actually selected
+        run: |
+          grep -q '^#define C_SDL3 1' config.h
+          grep -q '^#define C_SDL2 1' config.h   # SDL2-era code paths compile
+
+      - name: build
+        run: make -j"$(nproc)"
+
+      # The point of the whole exercise: no SDL2 anywhere in the binary.
+      - name: Assert the binary links SDL3 and only SDL3
+        run: |
+          ldd src/dosbox-x | grep -q 'libSDL3\.so'
+          if ldd src/dosbox-x | grep -q 'libSDL2'; then
+            echo "FAIL: binary still links SDL2"; ldd src/dosbox-x | grep -i sdl; exit 1
+          fi
+          ldd src/dosbox-x | grep -i sdl
+
+      - name: Assert the banner reports SDL3
+        run: ./src/dosbox-x --version 2>&1 | grep -q 'SDL3'
+
+      # Boot gate. 'working directory option=noprompt' is REQUIRED: with a
+      # non-TTY stdin DOSBox-X decides to prompt for a working directory and
+      # blocks forever in tinyfd_selectFolderDialog, which in CI looks like a
+      # hang with no diagnostic at all.
+      - name: Boot DOS headlessly
+        run: |
+          mkdir -p /tmp/dbx
+          cat > /tmp/dbx/dosbox-x.conf <<'CONF'
+          [sdl]
+          autolock=false
+          waitonerror=false
+          [dosbox]
+          working directory option=noprompt
+          memsize=16
+          [cpu]
+          cycles=fixed 3000
+          [autoexec]
+          echo SDL3_BOOT_OK
+          exit
+          CONF
+          SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy \
+            timeout 120 ./src/dosbox-x -conf /tmp/dbx/dosbox-x.conf \
+            -defaultdir /tmp/dbx < /dev/null > /tmp/dbx/run.log 2>&1
+          echo "--- engine log ---"; cat /tmp/dbx/run.log
+          grep -q 'SDL: version 3\.' /tmp/dbx/run.log
+          grep -q 'COMMAND.COM' /tmp/dbx/run.log
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: dosbox-x-sdl3-linux
+          path: src/dosbox-x
+          if-no-files-found: error
