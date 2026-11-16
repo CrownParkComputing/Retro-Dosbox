@@ -714,11 +714,23 @@ bool icon_button(const char *id, Icon icon, const char *tip = nullptr)
  * in it -- the parent is what they meant: otherwise games would be read from
  * games/games and the library would say it found nothing.
  */
+/* Entries in one folder, not counting hidden ones; 0 when it is missing. */
+int count_visible(const std::string &dir)
+{
+    int n = 0;
+    SDL_EnumerateDirectory(dir.c_str(),
+        [](void *ud, const char *, const char *name) -> SDL_EnumerationResult {
+            if (name[0] != '.' && name[0] != '~') ++*static_cast<int *>(ud);
+            return SDL_ENUM_CONTINUE;
+        }, &n);
+    return n;
+}
+
 void choose_storage_root(retrodos::AppConfig &cfg, std::string root)
 {
     while (root.size() > 1 && (root.back() == '/' || root.back() == '\\')) root.pop_back();
     static const char *const subs[] = { "games", "apps", "discs", "machines",
-                                        "dos", "windows", "freedos" };
+                                        "artwork", "dos", "windows", "freedos" };
     for (int pass = 0; pass < 2; ++pass) {
         const std::string leaf = base_name(root);
         bool is_sub = false;
@@ -2011,6 +2023,7 @@ int main(int argc, char **argv)
             }
         }
         if (!cfg.machines_root.empty()) SDL_CreateDirectory(cfg.machines_root.c_str());
+        if (!cfg.artwork_root.empty())  SDL_CreateDirectory(cfg.artwork_root.c_str());
     };
     make_storage_dirs();
 
@@ -2024,6 +2037,7 @@ int main(int argc, char **argv)
     const std::string demo_dir = cfg_dir + "/demo";
 
     std::vector<Game> games;
+    int games_gen = 0;   /* bumped by every rescan */
     auto refresh = [&]() {
         /* BOTH sources, always.
          *
@@ -2077,6 +2091,7 @@ int main(int argc, char **argv)
                 games.push_back(g);
             }
         }
+        ++games_gen;
     };
     refresh();
 
@@ -2255,6 +2270,47 @@ int main(int argc, char **argv)
         if (it != art.end() && it->second) SDL_DestroyTexture(it->second);
         art[name] = t;
     };
+    /*
+     * Box art from the artwork folder, named after the game: "Doom/" pairs
+     * with "Doom.png" or "Doom.jpg". It needs no account and no network, and
+     * a picture of your own wins over a downloaded one.
+     */
+    std::map<std::string, std::string> local_art;   /* game name -> file shown */
+    int local_art_gen = -1;
+    auto load_local_art = [&]() {
+        if (cfg.artwork_root.empty()) return;
+        static const char *const kExt[] = { ".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG" };
+        for (const Game &g : games) {
+            if (g.is_demo) continue;
+            for (const char *ext : kExt) {
+                const std::string path = cfg.artwork_root + "/" + g.name + ext;
+                SDL_PathInfo info;
+                if (!SDL_GetPathInfo(path.c_str(), &info) ||
+                    info.type != SDL_PATHTYPE_FILE) continue;
+                auto seen = local_art.find(g.name);
+                if (seen != local_art.end() && seen->second == path) break;
+                size_t size = 0;
+                void *bytes = SDL_LoadFile(path.c_str(), &size);
+                if (!bytes) break;
+                int w = 0, h = 0;
+                std::vector<unsigned char> rgba;
+                const bool ok = retrodos::decode_image((const unsigned char *)bytes, size,
+                                                       512, 512, w, h, rgba);
+                SDL_free(bytes);
+                if (!ok) break;
+                SDL_Texture *t = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGBA32,
+                                                   SDL_TEXTUREACCESS_STATIC, w, h);
+                if (!t) break;
+                SDL_UpdateTexture(t, nullptr, rgba.data(), w * 4);
+                SDL_SetTextureScaleMode(t, SDL_SCALEMODE_LINEAR);
+                auto it = art.find(g.name);
+                if (it != art.end() && it->second) SDL_DestroyTexture(it->second);
+                art[g.name] = t;
+                local_art[g.name] = path;
+                break;
+            }
+        }
+    };
     int   selected = -1;          /* game index for per-game settings */
     Settings active = cfg.defaults;
     bool  show_overlay = false, show_osk = false;
@@ -2281,6 +2337,12 @@ int main(int argc, char **argv)
      * "leave it where it was". The rail's Setup entry uses it to land on
      * the folder step directly. */
     int wizard_open_step = -1;
+    /* Setup steps with work done elsewhere. kWizTry starts the demo and the
+     * engine-exit handler brings the user back to it; the two machine steps
+     * open the Wizards page, whose rail then offers the way back. */
+    enum { kWizTry = 4, kWizWindows = 5, kWizFreeDos = 6 };
+    int  wizard_back_step = -1;     /* a Wizards page was opened from setup */
+    bool wizard_demo_ran  = false;  /* the demo was run from setup and closed */
     /* True once the parent folder has been picked on purpose -- in this
      * session, or by a config saved by an earlier one. The startup default
      * does not count. */
@@ -2534,6 +2596,16 @@ int main(int argc, char **argv)
         }
     }
 
+    /* The demo started from setup never came back -- the app was closed
+     * while it ran. Reopen setup where it was rather than leave the note to
+     * hijack the next unrelated game. */
+    if (cfg.pending_launch.empty() && cfg.wizard_resume >= 0) {
+        wizard_open_step = cfg.wizard_resume;
+        cfg.wizard_resume = -1;
+        retrodos::save_app_config(cfg_path, cfg);
+        view = View::Wizard;
+    }
+
     /* Auto-launch after a phoenix restart. Cleared and SAVED before the
      * launch, so a game that kills the process cannot restart-loop the app --
      * the second time round the note is simply gone. */
@@ -2592,6 +2664,7 @@ int main(int argc, char **argv)
          * last frame's dimensions -- wrong for exactly one frame after every
          * rotation, which is when a control has just moved. */
         SDL_GetWindowSizeInPixels(win, &win_w, &win_h);
+        if (local_art_gen != games_gen) { local_art_gen = games_gen; load_local_art(); }
         /* True when the UI is covering the game and DOS should see nothing. */
         const bool ui_modal = (view != View::Emulator) || show_overlay ||
                               show_osk || show_controls;
@@ -3209,6 +3282,17 @@ int main(int argc, char **argv)
                 win_running_dir.clear();
 
                 refresh();
+
+                /* Started from setup: go back to the step it came from.
+                 * Persisted, so an Android restart between the two runs of
+                 * the engine still lands here. */
+                if (cfg.wizard_resume >= 0) {
+                    wizard_open_step = cfg.wizard_resume;
+                    wizard_demo_ran  = cfg.wizard_resume == kWizTry;
+                    cfg.wizard_resume = -1;
+                    retrodos::save_app_config(cfg_path, cfg);
+                    view = View::Wizard;
+                }
             }
         }
 
@@ -3284,7 +3368,33 @@ int main(int argc, char **argv)
                              ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse);
 
                 static const char *kWizName[] = {
-                    "Welcome", "Where games live", "Add a game", "Try it", "Ready"
+                    "Welcome", "Your folder", "Games and apps", "Discs", "Try it",
+                    "Windows 98", "FreeDOS", "Controls and artwork", "Ready"
+                };
+                static_assert(kWizTry == 4 && kWizWindows == 5 && kWizFreeDos == 6,
+                              "setup step numbers out of step with kWizName");
+                const ImVec4 kGood(0.55f, 0.85f, 0.55f, 1.0f);
+                auto good = [&](const char *fmt, const char *arg) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, kGood);
+                    ImGui::TextWrapped(fmt, arg);
+                    ImGui::PopStyleColor();
+                };
+                /* One line per folder: what it is called here and what is in
+                 * it, so a folder found under another name is visible. */
+                auto folder_row = [&](const char *what, const std::string &dir) {
+                    const int n = count_visible(dir);
+                    ImGui::Bullet();
+                    ImGui::TextWrapped("%s:  %s/   %s", what, base_name(dir).c_str(),
+                                       n > 0 ? (std::to_string(n) + " inside").c_str()
+                                             : "empty");
+                };
+                auto images_in = [&](const std::string &dir) {
+                    std::vector<std::string> out;
+                    for (MediaKind mk : { MediaKind::Cd, MediaKind::Floppy })
+                        for (const std::string &f : scan_media(cfg, mk))
+                            if (f.compare(0, dir.size() + 1, dir + "/") == 0)
+                                out.push_back(base_name(f));
+                    return out;
                 };
                 const int kWizSteps = (int)SDL_arraysize(kWizName);
                 if (wstep < 0) wstep = 0;
@@ -3302,12 +3412,26 @@ int main(int argc, char **argv)
                 bool wiz_next = true;      /* may this step be left forwards? */
 
                 if (wstep == 0) {
-                    ImGui::TextWrapped("Runs DOS games and programs. A game is just a "
-                                       "folder of files -- nothing to install.");
+                    ImGui::TextWrapped("Runs DOS games and programs from the PCs of the "
+                                       "80s and 90s -- and, if you own a copy, Windows 98.");
                     ImGui::Spacing();
-                    TextDimWrapped("Three steps: choose a folder, add a game, try one. "
-                                   "The emulator is " RETRODOS_APP_CORE " (free, GPL); this "
-                                   "app supplies no games.");
+                    ImGui::TextWrapped("What the words mean here:");
+                    ImGui::Bullet();
+                    ImGui::TextWrapped("Game or app: a folder of DOS files. Nothing to "
+                                       "install -- copy the folder in and it is listed.");
+                    ImGui::Bullet();
+                    ImGui::TextWrapped("Disc: a CD or floppy image (.iso, .cue, .img) that "
+                                       "a game or an installer needs.");
+                    ImGui::Bullet();
+                    ImGui::TextWrapped("Machine: a whole PC with its own hard disk, such as "
+                                       "Windows 98 or FreeDOS, set up once and kept.");
+                    ImGui::Spacing();
+                    ImGui::TextWrapped("This walkthrough sets up all of it: the folder, "
+                                       "your games, discs, a test run, the optional "
+                                       "machines, and the controls.");
+                    ImGui::Spacing();
+                    TextDimWrapped("The emulator is " RETRODOS_APP_CORE " (free, GPL). The "
+                                   "app supplies no games or Windows; you bring your own.");
                 }
 
                 else if (wstep == 1) {
@@ -3398,12 +3522,32 @@ int main(int argc, char **argv)
                         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.85f, 0.55f, 1.0f));
                         ImGui::TextWrapped("Using: %s", cfg.storage_root.c_str());
                         ImGui::PopStyleColor();
-                        ImGui::TextDisabled("games/, discs/ and machines/ are made inside it "
-                                            "when you press Next.");
+                        ImGui::TextDisabled("Folders it needs are made inside it when you "
+                                            "press Next; ones you already have are used.");
                     } else {
                         ImGui::TextDisabled("Pick one of the two above to continue.");
                     }
 #endif
+#if defined(__APPLE__)
+                    const bool show_folders = true;
+#else
+                    const bool show_folders = storage_chosen;
+#endif
+                    if (show_folders) {
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+                        ImGui::TextWrapped("Inside it:");
+                        folder_row("Games",    cfg.library_root);
+                        folder_row("Apps",     cfg.apps_root);
+                        folder_row("Discs",    cfg.iso_root);
+                        folder_row("Machines", cfg.machines_root);
+                        folder_row("Artwork",  cfg.artwork_root);
+                        TextDimWrapped("Already have a collection? Folders called things "
+                                       "like \"DOS Games\", \"roms\", \"ISOs\" or "
+                                       "\"covers\" are found and used as they are.");
+                    }
+
                     /* Not skippable. The default the app starts with is only
                      * so it can run; where everything lives is the one choice
                      * setup exists to make. */
@@ -3424,8 +3568,8 @@ int main(int argc, char **argv)
                     ImGui::TextWrapped("Go to On My iPhone (or On My iPad) and find "
                                        RETRODOS_APP_NAME ".");
                     ImGui::Bullet();
-                    ImGui::TextWrapped("Put the game's folder inside the 'dos' folder "
-                                       "there.");
+                    ImGui::TextWrapped("Put the game's folder in %s.",
+                                       base_name(cfg.library_root).c_str());
                     ImGui::Spacing();
                     TextDimWrapped("A zip works too: unzip it in Files first, then move "
                                    "the folder across. AirDrop, iCloud Drive and a USB "
@@ -3466,11 +3610,75 @@ int main(int argc, char **argv)
                         }
                     }
                     ImGui::Spacing();
-                    TextDimWrapped("You can skip this and come back to it -- the next step "
-                                   "has something to run either way.");
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    ImGui::TextWrapped("Programs -- word processors, compilers, utilities -- "
+                                       "go the same way, into:");
+                    ImGui::TextDisabled("%s", root_label(cfg.apps_root).c_str());
+                    {
+                        int apps = 0;
+                        for (const Game &g : games) if (g.is_app) ++apps;
+                        if (apps > 0) {
+                            ImGui::PushStyleColor(ImGuiCol_Text, kGood);
+                            ImGui::Text("%d app%s found", apps, apps == 1 ? "" : "s");
+                            ImGui::PopStyleColor();
+                        }
+                    }
+                    ImGui::Spacing();
+                    TextDimWrapped("Each game is listed by its folder's name. The program "
+                                   "to start is found for you; if there is more than one, "
+                                   "the game's settings let you pick.");
+                    ImGui::Spacing();
+                    TextDimWrapped("You can skip this and come back to it -- Try it has "
+                                   "something to run either way.");
                 }
 
                 else if (wstep == 3) {
+                    make_storage_dirs();
+                    ImGui::TextWrapped("Some games need their CD or floppy in a drive, and "
+                                       "the machines install from a CD. Images go in the "
+                                       "discs folder, sorted by what they are for:");
+                    ImGui::Spacing();
+                    struct { const char *sub, *what; } kDiscs[] = {
+                        { "dos",     "game CDs and floppies" },
+                        { "windows", "your Windows 98 CD, and Windows games" },
+                        { "freedos", "the FreeDOS installer CD" },
+                    };
+                    for (const auto &d : kDiscs) {
+                        const std::string dir = retrodos::discs_dir(cfg, d.sub);
+                        const size_t n = images_in(dir).size();
+                        ImGui::Bullet();
+                        ImGui::TextWrapped("%s/%s  -  %s", base_name(cfg.iso_root).c_str(),
+                                           d.sub, d.what);
+                        if (n > 0) {
+                            ImGui::SameLine();
+                            ImGui::PushStyleColor(ImGuiCol_Text, kGood);
+                            ImGui::Text("(%d)", (int)n);
+                            ImGui::PopStyleColor();
+                        }
+                    }
+                    ImGui::Spacing();
+                    TextDimWrapped("CDs: .iso, or .cue with its .bin. Floppies: .img, .ima "
+                                   "or .vfd. Copy them in the same way as games.");
+                    ImGui::Spacing();
+                    if (ImGui::Button("Look again")) refresh();
+                    ImGui::SameLine();
+                    {
+                        const size_t cds = scan_media(cfg, MediaKind::Cd).size();
+                        const size_t fds = scan_media(cfg, MediaKind::Floppy).size();
+                        if (cds + fds > 0)
+                            good("%s", (std::to_string(cds) + " CD, " + std::to_string(fds) +
+                                        " floppy image(s) found").c_str());
+                        else
+                            ImGui::TextDisabled("no disc images yet");
+                    }
+                    ImGui::Spacing();
+                    TextDimWrapped("While a game runs, its disc is put in or swapped from "
+                                   "the pause menu (Esc). Nothing here is needed to play "
+                                   "games that are just files.");
+                }
+
+                else if (wstep == kWizTry) {
                     ImGui::TextWrapped("Something to run right now, with no files of your "
                                        "own:");
                     ImGui::Spacing();
@@ -3489,13 +3697,12 @@ int main(int argc, char **argv)
                             ImGui::PushID(g.name.c_str());
                             if (ImGui::Button(g.name.c_str(),
                                               ImVec2(ImGui::GetFontSize() * 18.0f, 0))) {
-                                /* Finish first. Starting the emulator from
-                                 * inside the wizard and leaving wizard_done
-                                 * false would drop the user back here when the
-                                 * game exits, with no sign of what happened. */
-                                cfg.wizard_done = true;
+                                /* Comes back here when it exits: "Back to
+                                 * setup" on the strip, or Esc. Saved, since on
+                                 * Android a second run restarts the app. */
+                                make_storage_dirs();
+                                cfg.wizard_resume = kWizTry;
                                 retrodos::save_app_config(cfg_path, cfg);
-                                view = View::Shell;
                                 launch(g);
                             }
                             ImGui::PopID();
@@ -3504,14 +3711,145 @@ int main(int argc, char **argv)
                         TextDimWrapped("FreeDOS 1.3 is included verbatim under the GPL; "
                                        "the demonstration program was written for this "
                                        "project.");
+                        ImGui::Spacing();
+                        if (wizard_demo_ran)
+                            good("%s", "It ran. Everything that game needed works on "
+                                       "this device.");
+                        else
+                            TextDimWrapped("Tap Back to setup at the top of the screen, "
+                                           "or Esc then Return to setup, to come back "
+                                           "here.");
+                    }
+                }
+
+                else if (wstep == kWizWindows || wstep == kWizFreeDos) {
+                    const bool win = wstep == kWizWindows;
+                    const retrodos::OsKind os = win ? retrodos::OsKind::Win98
+                                                    : retrodos::OsKind::FreeDos;
+                    if (win) {
+                        ImGui::TextWrapped("Optional. Windows 98 runs the Windows games of the "
+                                           "late 90s, on a hard disk image this app keeps.");
+                        ImGui::Spacing();
+                        ImGui::TextWrapped("You need:");
+                        ImGui::Bullet();
+                        ImGui::TextWrapped("Your own Windows 98 SE CD as an image (.iso), and "
+                                           "its product key.");
+                        ImGui::Bullet();
+                        ImGui::TextWrapped("About 20 minutes, and a few GB free.");
+                    } else {
+                        ImGui::TextWrapped("Optional. A FreeDOS machine is a real DOS PC with "
+                                           "its own hard disk: install DOS programs on it and "
+                                           "they stay installed.");
+                        ImGui::Spacing();
+                        ImGui::TextWrapped("You need:");
+                        ImGui::Bullet();
+                        ImGui::TextWrapped("The FreeDOS 1.3 LegacyCD image, free from "
+                                           "freedos.org.");
+                        ImGui::Bullet();
+                        ImGui::TextWrapped("About 10 minutes.");
+                        ImGui::Spacing();
+                        TextDimWrapped("Not the same as Try it's FreeDOS: that one starts "
+                                       "from a floppy and keeps nothing.");
+                    }
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    const std::string ddir = retrodos::discs_dir(cfg, win ? "windows" : "freedos");
+                    if (machine_ready(os)) {
+                        good("%s is installed and ready. It is on the Launch page.",
+                             retrodos::os_name(os));
+                    } else {
+                        const std::vector<std::string> found = images_in(ddir);
+                        if (!found.empty())
+                            good("CD image found: %s", found.front().c_str());
+                        else
+                            ImGui::TextWrapped("No CD image yet. Put it in:  %s/%s",
+                                               base_name(cfg.iso_root).c_str(),
+                                               win ? "windows" : "freedos");
+                        if (ImGui::Button("Look again")) refresh();
+                        ImGui::Spacing();
+                        const float fs = ImGui::GetFontSize();
+                        if (ImGui::Button(win ? "Set up Windows 98 now"
+                                              : "Set up FreeDOS now",
+                                          ImVec2(ImGui::GetContentRegionAvail().x * 0.9f,
+                                                 fs * 2.6f))) {
+                            make_storage_dirs();
+                            refresh();
+                            wizard_back_step = wstep;
+                            page = win ? Page::Windows : Page::FreeDos;
+                            win_stale = true;
+                            machine_wizard = true;
+                            selected = -1;
+                            view = View::Shell;
+                        }
+                        TextDimWrapped("Opens its step-by-step installer. Back to setup, "
+                                       "at the top of the menu, returns here.");
+                    }
+                    ImGui::Spacing();
+                    TextDimWrapped("Skip it if you like: Wizards, in the menu, does this "
+                                   "whenever you want.");
+                }
+
+                else if (wstep == 7) {
+                    ImGui::TextWrapped("Playing without a keyboard:");
+                    ImGui::Bullet();
+                    ImGui::TextWrapped("A game controller is used as soon as it is "
+                                       "connected. Without one, buttons are drawn on the "
+                                       "screen.");
+                    ImGui::Bullet();
+                    ImGui::TextWrapped("Kbd, on the strip at the top, opens a full PC "
+                                       "keyboard.");
+                    ImGui::Bullet();
+                    ImGui::TextWrapped("Esc opens the pause menu: change which key each "
+                                       "button presses, per game, swap discs, or quit.");
+                    ImGui::Bullet();
+                    ImGui::TextWrapped("Games with a mouse: the screen is a trackpad. Drag "
+                                       "to move, tap to click, press and hold to right "
+                                       "click, double-tap and drag to drag.");
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    ImGui::TextWrapped("Box art: put a picture named like the game's folder "
+                                       "in:");
+                    ImGui::TextDisabled("%s", root_label(cfg.artwork_root).c_str());
+                    TextDimWrapped("For example, a game in \"Commander Keen 4\" uses "
+                                   "\"Commander Keen 4.png\" (or .jpg). It shows in the "
+                                   "library straight away.");
+                    if (!local_art.empty()) {
+                        ImGui::PushStyleColor(ImGuiCol_Text, kGood);
+                        ImGui::Text("%d picture%s matched", (int)local_art.size(),
+                                    local_art.size() == 1 ? "" : "s");
+                        ImGui::PopStyleColor();
                     }
                 }
 
                 else {
                     ImGui::TextWrapped("That is everything.");
                     ImGui::Spacing();
-                    ImGui::TextWrapped("Your games folder:");
-                    ImGui::TextDisabled("%s", root_label(cfg.library_root).c_str());
+                    ImGui::TextWrapped("Your folder:");
+                    ImGui::TextDisabled("%s", root_label(cfg.storage_root.empty()
+                                                         ? cfg.library_root
+                                                         : cfg.storage_root).c_str());
+                    {
+                        int ng = 0, na = 0;
+                        for (const Game &g : games) {
+                            if (g.is_machine || g.is_demo) continue;
+                            if (g.is_app) ++na; else ++ng;
+                        }
+                        const size_t nd = scan_media(cfg, MediaKind::Cd).size() +
+                                          scan_media(cfg, MediaKind::Floppy).size();
+                        ImGui::Bullet();
+                        ImGui::Text("%d game%s, %d app%s, %d disc image%s", ng,
+                                    ng == 1 ? "" : "s", na, na == 1 ? "" : "s", (int)nd,
+                                    nd == 1 ? "" : "s");
+                        ImGui::Bullet();
+                        ImGui::Text("Windows 98: %s", machine_ready(retrodos::OsKind::Win98)
+                                    ? "ready" : "not set up");
+                        ImGui::Bullet();
+                        ImGui::Text("FreeDOS machine: %s",
+                                    machine_ready(retrodos::OsKind::FreeDos)
+                                    ? "ready" : "not set up");
+                    }
                     ImGui::Spacing();
                     ImGui::Separator();
                     ImGui::Spacing();
@@ -3523,8 +3861,8 @@ int main(int argc, char **argv)
                     ImGui::TextWrapped("Windows Setup installs Windows 98 from a CD image "
                                        "you own, step by step.");
                     ImGui::Bullet();
-                    ImGui::TextWrapped("This screen is under Machine, as Change games "
-                                       "folder, whenever you want it again.");
+                    ImGui::TextWrapped("This walkthrough is under Machine, as Run setup "
+                                       "again, whenever you want it.");
                 }
 
                 ImGui::PopTextWrapPos();
@@ -3549,6 +3887,9 @@ int main(int argc, char **argv)
                     if (ImGui::Button("Finish", wnav)) {
                         make_storage_dirs();
                         cfg.wizard_done = true;
+                        cfg.wizard_resume = -1;
+                        wizard_back_step = -1;
+                        wizard_demo_ran = false;
                         retrodos::save_app_config(cfg_path, cfg);
                         refresh();
                         wstep = 0;
@@ -3631,6 +3972,17 @@ int main(int argc, char **argv)
                     if (on) ImGui::PopStyleColor();
                 };
 
+                if (wizard_back_step >= 0) {
+                    ImGui::PushStyleColor(ImGuiCol_Button,
+                                          ImVec4(0.20f, 0.45f, 0.25f, 1.0f));
+                    if (ImGui::Button("Back to setup", ImVec2(bw, bh))) {
+                        wizard_open_step = wizard_back_step;
+                        wizard_back_step = -1;
+                        view = View::Wizard;
+                    }
+                    ImGui::PopStyleColor();
+                    ImGui::Separator();
+                }
                 /* Launch first: it is what the app was opened to do. Then
                  * one screen per kind of thing you own. */
                 nav("Launch",   Page::Launch);
@@ -5282,7 +5634,8 @@ int main(int argc, char **argv)
                 if (ImGui::Button("Resume", ImVec2(halfw, fs * 1.8f)))
                     show_overlay = false;
                 ImGui::SameLine();
-                if (ImGui::Button("Quit to library", ImVec2(halfw, fs * 1.8f))) {
+                if (ImGui::Button(cfg.wizard_resume >= 0 ? "Return to setup" : "Quit to library",
+                                  ImVec2(halfw, fs * 1.8f))) {
                     retrodos_host_quit(); show_overlay = false;
                 }
                 ImGui::TextDisabled("Running: %s", prog[0] ? prog : "DOS");
@@ -5587,6 +5940,12 @@ int main(int argc, char **argv)
                     if (show_osk) show_controls = false;
                 }
                 if (show_osk) ImGui::PopStyleColor();
+                /* Always in reach while setup's demo runs: the way back must
+                 * not depend on knowing that Esc opens a menu. */
+                if (cfg.wizard_resume >= 0) {
+                    ImGui::SameLine();
+                    if (ImGui::Button("Back to setup")) retrodos_host_quit();
+                }
                 const ImVec2 bp = ImGui::GetWindowPos(), bs = ImGui::GetWindowSize();
                 emubar = SDL_FRect{ bp.x, bp.y, bs.x, bs.y };
                 ImGui::End();

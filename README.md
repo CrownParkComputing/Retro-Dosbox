@@ -33,6 +33,23 @@ The setup wizard asks for **one folder** and keeps everything under it:
     <folder>/discs/windows/   the Windows install CD and Windows game CDs
     <folder>/discs/freedos/   the FreeDOS CD
     <folder>/machines/        Windows 98/ and FreeDOS/, each with its hard disk image
+    <folder>/artwork/         box art, named like the game: "Doom/" -> "Doom.png" or ".jpg"
+
+Folders that already exist under other common names are used as they are --
+"DOS Games" or "roms" for games, "ISOs" or "CDs" for discs, "covers" for
+artwork -- and a non-empty one wins over an empty folder of the default name.
+
+## First-run setup
+
+The same walkthrough runs on Android and iOS (DOSDeck), one step at a time:
+Welcome (what games, apps, discs and machines are) -> Your folder (pick it on
+Android; on iOS it is the app's own folder in Files) with what was found in
+it -> Games and apps, with live counts -> Discs, sorted into dos/, windows/
+and freedos/ -> Try it, which runs the bundled demo or FreeDOS and comes back
+to the same step (a "Back to setup" button is on the emulator strip, and the
+step is saved so an Android restart between engine runs still returns) ->
+Windows 98 and FreeDOS, optional, each opening its installer with "Back to
+setup" on the rail -> Controls and artwork -> Ready, a summary.
 
 The rail is Launch, Library, Media, Windows, FreeDOS. Library lists games and
 applications together with an A-Z / 0-9 strip and a search modal; tapping a
@@ -50,7 +67,7 @@ picker -- granted read/write and persisted, resolved to a real path because
 DOSBox-X mounts paths, not `content://` URIs -- or the app's own storage on
 any volume, which needs no permission. A picked folder that Android will not
 let the app write to directly is reported in the wizard rather than failing
-later. "Run setup again" on the Library page goes back through the wizard;
+later. "Run setup again" on the Machine page goes back through the wizard;
 nothing is moved when the folder changes.
 
 ## Building
