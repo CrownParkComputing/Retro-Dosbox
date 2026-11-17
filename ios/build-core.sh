@@ -100,7 +100,11 @@ if [ ! -f config.h ]; then
     # these directly is enough -- no pkg-config needed anywhere.
     export SDL3_CFLAGS="-I$SDL3_PREFIX/include"
     export SDL3_LIBS="-L$SDL3_PREFIX/lib -lSDL3"
-    export CFLAGS="$IOS_CFLAGS" CXXFLAGS="$IOS_CFLAGS -DRETRODOS_HOST_PROVIDES_MAIN"
+    # RETRODOS_NO_LOCALPIPE selects the stub half of localpipe.cpp that
+    # apply-ios-configure.py injects. Without it the AF_UNIX transport
+    # compiles and the network guard below fails on _bind/_listen/_accept.
+    export CFLAGS="$IOS_CFLAGS" \
+           CXXFLAGS="$IOS_CFLAGS -DRETRODOS_HOST_PROVIDES_MAIN -DRETRODOS_NO_LOCALPIPE"
     export OBJCFLAGS="$IOS_CFLAGS" OBJCXXFLAGS="$IOS_CFLAGS"
     # --build MUST differ from --host. On an Apple Silicon Mac the build
     # machine IS aarch64-apple-darwin, cross mode never engages, and configure
