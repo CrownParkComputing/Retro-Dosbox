@@ -113,12 +113,13 @@ struct SetupGuide: View {
 
     private var folders: some View {
         VStack(alignment: .leading, spacing: 14) {
-            para("Everything goes in through the Files app. DOSDeck has three folders "
+            para("Everything goes in through the Files app. DOSDeck has four folders "
                + "there:")
             Panel(title: "Files › On My iPhone (or iPad) › DOSDeck") {
                 VStack(spacing: 0) {
                     folderRow("DOS", "Games and programs", "folder", titles.count)
                     folderRow("Discs", "CD and floppy images", "opticaldisc", discs.count)
+                    folderRow("Media", "Box art, named after the game", "photo", nil)
                     folderRow("Windows", "The Windows 98 machine — DOSDeck fills this",
                               "desktopcomputer", nil)
                 }

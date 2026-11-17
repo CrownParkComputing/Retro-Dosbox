@@ -18,6 +18,7 @@
 //
 
 import SwiftUI
+import UIKit   // UIImage, for box art loaded off disk
 
 enum Theme {
 
@@ -172,6 +173,10 @@ struct ChoiceRow<Trailing: View>: View {
     let title: String
     var subtitle: String? = nil
     var icon: String = "folder"
+    /// A picture from the Media folder, drawn instead of the symbol. It fills
+    /// the same slot the symbol occupies, so a list where only some titles
+    /// have art still lines up.
+    var artwork: URL? = nil
     var selected = false
     @ViewBuilder var trailing: Trailing
 
@@ -180,10 +185,18 @@ struct ChoiceRow<Trailing: View>: View {
             Rectangle()
                 .fill(selected ? Theme.amber : Color.clear)
                 .frame(width: 3)
-            Image(systemName: icon)
-                .font(.system(size: 15))
-                .foregroundColor(selected ? Theme.amber : Theme.amberDim)
-                .frame(width: 22)
+            if let artwork, let image = UIImage(contentsOfFile: artwork.path) {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 22, height: 22)
+                    .clipShape(RoundedRectangle(cornerRadius: 3))
+            } else {
+                Image(systemName: icon)
+                    .font(.system(size: 15))
+                    .foregroundColor(selected ? Theme.amber : Theme.amberDim)
+                    .frame(width: 22)
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(Theme.body.weight(selected ? .semibold : .regular))
@@ -207,8 +220,10 @@ struct ChoiceRow<Trailing: View>: View {
 }
 
 extension ChoiceRow where Trailing == EmptyView {
-    init(title: String, subtitle: String? = nil, icon: String = "folder", selected: Bool = false) {
-        self.init(title: title, subtitle: subtitle, icon: icon, selected: selected) { EmptyView() }
+    init(title: String, subtitle: String? = nil, icon: String = "folder",
+         artwork: URL? = nil, selected: Bool = false) {
+        self.init(title: title, subtitle: subtitle, icon: icon,
+                  artwork: artwork, selected: selected) { EmptyView() }
     }
 }
 

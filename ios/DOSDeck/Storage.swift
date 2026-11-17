@@ -31,6 +31,13 @@ enum Storage {
     /// CD and floppy images: the Windows disc, a game's CD, a FreeDOS ISO.
     static var discs: URL { documents.appendingPathComponent("Discs", isDirectory: true) }
 
+    /// Box art, beside the software it belongs to rather than fetched from
+    /// anywhere. The app had an artwork service once; it was removed with the
+    /// rest of RetroMedia, and this is what replaced it. A file named after a
+    /// game is that game's picture, and that is the whole mechanism -- no
+    /// account, no download, no network, nothing to go stale.
+    static var media: URL { documents.appendingPathComponent("Media", isDirectory: true) }
+
     /// The Windows machine -- its disk image and its state. One machine, not a
     /// library of them: a Windows 98 disk image is several gigabytes and a
     /// phone holds one of those, not a collection.
@@ -58,7 +65,7 @@ enum Storage {
 
     static func prepare() {
         let fm = FileManager.default
-        for url in [dos, discs, windows, work, extracted] {
+        for url in [dos, discs, media, windows, work, extracted] {
             try? fm.createDirectory(at: url, withIntermediateDirectories: true)
         }
         installBundledContent()
@@ -95,6 +102,21 @@ enum Storage {
         can put a disc in the drive or change it, the way you would on a real
         machine.
         """, into: discs)
+
+        write(readme: """
+        DOSDeck — box art
+        =================
+
+        Pictures for the things in your DOS folder go here.
+
+        Name the picture after the game and DOSDeck will find it: a folder
+        called DOOM is matched by DOOM.png, and KEEN.ZIP by KEEN.jpg. Case does
+        not matter and neither does the extension, as long as it is .png, .jpg,
+        .jpeg, .gif, .bmp or .webp.
+
+        Nothing here is supplied by DOSDeck and nothing is downloaded. These
+        are your files, put here by you, the same as everything else in the app.
+        """, into: media)
 
         write(readme: """
         DOSDeck — the Windows machine
@@ -145,6 +167,62 @@ enum Storage {
             case .prompt:  return "chevron.right"
             }
         }
+    }
+
+    // MARK: - Box art
+
+    /// The picture for a title, or nil when there is not one.
+    ///
+    /// Matched by name, case-insensitively, against the Media folder: a DOS
+    /// folder called `DOOM` is matched by `DOOM.png`, and `KEEN.ZIP` by
+    /// `KEEN.jpg`. The archive's own extension is dropped first, so a game
+    /// does not need two different pictures depending on whether it has been
+    /// unpacked yet.
+    ///
+    /// The folder is listed once and the result cached, rather than probing
+    /// six extensions per title: this is asked on every row of a scrolling
+    /// list, and one listing answers for all of them. The cache is dropped
+    /// when the folder's modification date moves, so a picture dropped in
+    /// through the Files app appears without restarting the app.
+    static func artwork(for title: Title) -> URL? {
+        guard let name = artworkKey(for: title) else { return nil }
+        return artworkIndex()[name]
+    }
+
+    private static let artworkExtensions: Set<String> =
+        ["png", "jpg", "jpeg", "gif", "bmp", "webp"]
+
+    private static func artworkKey(for title: Title) -> String? {
+        guard title.kind != .prompt else { return nil }
+        let base = title.url?.lastPathComponent ?? title.name
+        return (base as NSString).deletingPathExtension.lowercased()
+    }
+
+    private static var artworkCache: [String: URL] = [:]
+    private static var artworkCacheStamp: Date?
+
+    /// Lowercased stem -> picture, for everything in the Media folder.
+    private static func artworkIndex() -> [String: URL] {
+        let stamp = (try? media.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate
+        if let stamp, stamp == artworkCacheStamp { return artworkCache }
+
+        let entries = ((try? FileManager.default.contentsOfDirectory(
+            at: media, includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles])) ?? [])
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+        var index: [String: URL] = [:]
+        for url in entries where artworkExtensions.contains(url.pathExtension.lowercased()) {
+            let stem = url.deletingPathExtension().lastPathComponent.lowercased()
+            // Sorted first, so DOOM.jpg and DOOM.png always resolve the same
+            // way round rather than depending on what order the filesystem
+            // hands them back.
+            if index[stem] == nil { index[stem] = url }
+        }
+        artworkCache = index
+        artworkCacheStamp = stamp
+        return index
     }
 
     struct Disc: Identifiable, Hashable {
