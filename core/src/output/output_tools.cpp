@@ -24,6 +24,13 @@
 #include "sdlmain.h"
 #include "control.h"
 #include "render.h"
+
+/* Weak, exactly as in sdlmain.cpp: a plain dosbox-x build resolves it to null
+ * and the guard below is then always false. */
+extern "C" bool retrodos_host_embedded(void) __attribute__((weak));
+static inline bool retrodos_host_embedded_or_false(void) {
+    return retrodos_host_embedded ? retrodos_host_embedded() : false;
+}
 #include "logging.h"
 #include "../ints/int10.h"
 
@@ -204,7 +211,10 @@ void change_output(int output) {
     }
 
 #if C_GAMELINK
-    if (!OUTPUT_GAMELINK_InitTrackingMode() && sdl.desktop.want_type == SCREEN_GAMELINK) OUTPUT_SURFACE_Select();
+    /* Not when embedded: see the matching guard in sdlmain.cpp. A host with no
+     * window cannot be given SCREEN_SURFACE. */
+    if (!OUTPUT_GAMELINK_InitTrackingMode() && sdl.desktop.want_type == SCREEN_GAMELINK
+        && !retrodos_host_embedded_or_false()) OUTPUT_SURFACE_Select();
 #endif
 
 

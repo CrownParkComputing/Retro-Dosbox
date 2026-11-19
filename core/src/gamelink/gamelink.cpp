@@ -40,8 +40,18 @@
 #include "SDL_syswm.h"
 #include "SDL.h"
 
-#if defined(__ANDROID__) && !defined(WIN32)
-/* Bionic has no POSIX shared memory: shm_open/shm_unlink do not exist at all.
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+#if (defined(__ANDROID__) || (defined(__APPLE__) && TARGET_OS_IPHONE)) && !defined(WIN32)
+/* Bionic has no POSIX shared memory: shm_open/shm_unlink do not exist at all,
+ * and iOS has them but refuses them: a sandboxed app may only open a name
+ * inside its App Group container, so shm_open() of a global name fails with
+ * EPERM. That failure is fatal rather than cosmetic -- GameLink::AllocRAM()
+ * backs the GUEST'S MAIN MEMORY with this mapping, so it returns nullptr and
+ * memory.cpp answers with E_Exit("Can't allocate main memory"), which exits
+ * the process. On a phone that is the whole app disappearing with no crash
+ * report, which is how it was found.
  * The Game Link mapping only matters to an EXTERNAL client (Grid Cartographer
  * and friends); an embedded host reads frames through the in-process publish
  * hook instead. Backing it with an ordinary file keeps every ftruncate/mmap/
@@ -53,6 +63,8 @@
 #include <stdlib.h>
 static const char *retrodos_shm_dir(void)
 {
+	/* TMPDIR is the app's own tmp directory on iOS and is always set there;
+	 * the literal is Android's writable fallback. */
 	const char *tmp = getenv("TMPDIR");
 	return (tmp && *tmp) ? tmp : "/data/local/tmp";
 }
@@ -487,8 +499,20 @@ uint8_t* GameLink::AllocRAM( const uint32_t size )
 	if ( iresult != 1 )
 	{
 		destroy_mutex( GAMELINK_MUTEX_NAME );
-		// failed.
-		return nullptr;
+		/* The mapping is how an EXTERNAL client sees the guest's memory, and
+		 * nothing more: the emulator itself only needs somewhere to put it.
+		 * Returning nullptr here instead sends memory.cpp into
+		 * E_Exit("Can't allocate main memory"), which exits the process -- so
+		 * a host that cannot have the mapping loses the whole machine rather
+		 * than just the Game Link clients it never had. */
+		LOG_MSG( "GAMELINK: no shared mapping; guest memory is process-local "
+		         "and external Game Link clients cannot attach." );
+		/* The output stays Game Link: GameLink::Out() and ::In() already check
+		 * the mapping and do nothing without one, while the embedded host is
+		 * fed by retrodos_host_frame_posted() before either is called. Turning
+		 * the output off here instead would select SCREEN_SURFACE, which on a
+		 * host with no window is another E_Exit. */
+		return (uint8_t*)malloc( g_membase_size );
 	}
 
 	// Initialise

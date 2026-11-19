@@ -2380,7 +2380,13 @@ Bitu GFX_SetSize(Bitu width, Bitu height, Bitu flags, double scalex, double scal
     }
 
 #if C_GAMELINK
-    if (!OUTPUT_GAMELINK_InitTrackingMode() && sdl.desktop.want_type == SCREEN_GAMELINK) {
+    /* An EMBEDDED host has no window, so "fall back to surface" is a fall back
+     * to E_Exit: SCREEN_SURFACE asks for a windowed video mode and the engine
+     * dies with "Invalid window", taking the app with it. Game Link without
+     * its shared mapping still feeds the host in process, so staying put is
+     * both survivable and correct. */
+    if (!OUTPUT_GAMELINK_InitTrackingMode() && sdl.desktop.want_type == SCREEN_GAMELINK
+        && !retrodos_host_embedded()) {
         OUTPUT_SURFACE_Select();
         retFlags = OUTPUT_SURFACE_SetSize();
     }
