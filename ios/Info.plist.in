@@ -27,8 +27,16 @@
 	     and AVAudioSession for its camera and audio-recording support, which
 	     this app does not use but still links. Verified with
 	     `nm -u` on the built binary, not assumed. -->
+	<!-- Worded like the two below, and that matters. It used to say "DOSDeck
+	     uses Bluetooth only to connect game controllers", which is not true:
+	     the app contains no CoreBluetooth code at all, and a controller is
+	     paired in iOS Settings and reaches the app through the system
+	     GameController framework. App Review read that sentence as the app
+	     pairing with designated hardware and asked, under guideline 2.1, for a
+	     demo video of "the initial pairing process between the app and the
+	     designated hardware" -- of which there is none. -->
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>DOSDeck uses Bluetooth only to connect game controllers. It collects no data and never scans for anything else.</string>
+	<string>DOSDeck does not use Bluetooth and never pairs or scans for devices. This entry is required because the SDL library the app is built on links Apple's Bluetooth APIs, and iOS asks for the description whether or not they are ever called.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>DOSDeck does not use the camera. This entry is required because the SDL library the app is built on links Apple's camera APIs, and iOS asks for the description whether or not they are ever called.</string>
 	<key>NSMicrophoneUsageDescription</key>

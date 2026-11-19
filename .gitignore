@@ -5,10 +5,10 @@
 # starts, and cannot run a single game -- with nothing in the pipeline
 # noticing, because a missing core is not a build error.
 #
-# That reasoning no longer holds. The core is a submodule of this repository,
-# so any checkout can build it, android/build-core.sh installs its output
-# straight into the directory Gradle packages, and it refuses to run at all
-# when the submodule has not been initialised. Committing 40 MB of binaries per
+# That reasoning no longer holds. The core is part of this repository, so any
+# checkout can build it, android/build-core.sh installs its output straight
+# into the directory Gradle packages, and it refuses to run at all when the
+# core is missing. Committing 40 MB of binaries per
 # ABI to work around a problem that no longer exists is not a trade worth
 # making.
 android/app/src/main/jniLibs/

@@ -1,0 +1,139 @@
+name: Sync upstream
+
+# Pulls the latest upstream core and FLAGS it. It deliberately does not rewrite
+# the integration branch: the Android and iOS app repos pin a commit on
+# INTEGRATION_BRANCH, so an automatic rebase here would move the ground under a
+# shipping build. Instead this job
+#
+#   1. fast-forwards MIRROR_BRANCH, which is a read-only copy of upstream,
+#   2. test-merges upstream into a scratch branch to find out whether taking the
+#      update would be clean or would land on our patches, and
+#   3. reports both in one rolling issue, so "upstream moved" is visible without
+#      anyone having to go and look.
+#
+# Taking the update is then a deliberate act: merge MIRROR_BRANCH into
+# INTEGRATION_BRANCH, rebuild, and bump the submodule in the app repos.
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  # issues: write is deliberately absent - see the "Flag it" step
+
+env:
+  UPSTREAM_URL: https://github.com/joncampbell123/dosbox-x.git
+  UPSTREAM_BRANCH: master
+  MIRROR_BRANCH: master
+  INTEGRATION_BRANCH: sdl3
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.INTEGRATION_BRANCH }}
+
+      - name: Fetch upstream
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream "$UPSTREAM_URL"
+          git fetch --no-tags upstream "$UPSTREAM_BRANCH"
+
+      - name: Fast-forward the mirror branch
+        run: |
+          # A non-fast-forward here means somebody committed onto the mirror.
+          # That is a mistake worth seeing rather than force-pushing over.
+          if git push origin "refs/remotes/upstream/$UPSTREAM_BRANCH:refs/heads/$MIRROR_BRANCH"; then
+            echo "MIRROR_STATE=up to date" >> "$GITHUB_ENV"
+          else
+            echo "MIRROR_STATE=**could not fast-forward** - the mirror branch has diverged from upstream" >> "$GITHUB_ENV"
+          fi
+
+      - name: Measure the gap and test-merge
+        id: gap
+        run: |
+          ahead=$(git rev-list --count "HEAD..upstream/$UPSTREAM_BRANCH")
+          echo "ahead=$ahead" >> "$GITHUB_OUTPUT"
+          echo "tip=$(git rev-parse --short "upstream/$UPSTREAM_BRANCH")" >> "$GITHUB_OUTPUT"
+          echo "ours=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          if [ "$ahead" -eq 0 ]; then
+            echo "clean=uptodate" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git log --oneline --no-decorate "HEAD..upstream/$UPSTREAM_BRANCH" | head -40 > /tmp/commits.txt
+          git checkout -q -b ci-test-merge
+          if git merge --no-commit --no-ff "upstream/$UPSTREAM_BRANCH" >/dev/null 2>&1; then
+            echo "clean=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "clean=no" >> "$GITHUB_OUTPUT"
+            git diff --name-only --diff-filter=U > /tmp/conflicts.txt
+          fi
+          git merge --abort >/dev/null 2>&1 || true
+
+      - name: Flag it
+        # The flag is a job summary plus a deliberately failed run.
+        #
+        # An issue would read better, but GITHUB_TOKEN cannot create issues in a
+        # forked repository no matter what `permissions:` says, and these core
+        # repos are all forks. Rather than park a personal access token in six
+        # repos to work around that, the run itself carries the signal: GitHub
+        # emails the owner when a scheduled workflow fails, the Actions tab shows
+        # red, and the summary below has the detail. Green means "level with
+        # upstream"; red means "upstream moved, go and look".
+        if: steps.gap.outputs.clean != 'uptodate'
+        env:
+          AHEAD: ${{ steps.gap.outputs.ahead }}
+          TIP: ${{ steps.gap.outputs.tip }}
+          OURS: ${{ steps.gap.outputs.ours }}
+          CLEAN: ${{ steps.gap.outputs.clean }}
+        run: |
+          {
+            echo "## Upstream moved"
+            echo
+            echo "\`$INTEGRATION_BRANCH\` (\`$OURS\`) is **$AHEAD commits behind** upstream \`$UPSTREAM_BRANCH\` (\`$TIP\`)."
+            echo
+            echo "- Mirror branch \`$MIRROR_BRANCH\`: $MIRROR_STATE"
+            if [ "$CLEAN" = "yes" ]; then
+              echo "- Test merge into \`$INTEGRATION_BRANCH\`: **clean**"
+            else
+              echo "- Test merge into \`$INTEGRATION_BRANCH\`: **conflicts**, in:"
+              echo
+              sed 's/^/      - `/; s/$/`/' /tmp/conflicts.txt
+            fi
+            echo
+            echo "<details><summary>New upstream commits (first 40)</summary>"
+            echo
+            echo '```'
+            cat /tmp/commits.txt
+            echo '```'
+            echo
+            echo "</details>"
+            echo
+            echo "### Taking it"
+            echo
+            echo '```'
+            echo "git fetch upstream $UPSTREAM_BRANCH"
+            echo "git checkout $INTEGRATION_BRANCH"
+            echo "git merge upstream/$UPSTREAM_BRANCH"
+            echo '```'
+            echo
+            echo "Then rebuild the core for linux/android/ios and bump the \`core\`"
+            echo "submodule in the app repos that consume it."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "::error title=Upstream moved::$AHEAD commits behind upstream ($TIP). Test merge: $CLEAN. See the job summary."
+          exit 1
+
+      - name: Level with upstream
+        if: steps.gap.outputs.clean == 'uptodate'
+        run: |
+          echo "## Level with upstream" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "\`$INTEGRATION_BRANCH\` carries every commit on upstream \`$UPSTREAM_BRANCH\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "Mirror branch \`$MIRROR_BRANCH\`: $MIRROR_STATE" >> "$GITHUB_STEP_SUMMARY"

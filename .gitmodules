@@ -1,4 +1,0 @@
-[submodule "core"]
-	path = core
-	url = https://github.com/CrownParkComputing/dosbox-x-sdl3.git
-	branch = sdl3

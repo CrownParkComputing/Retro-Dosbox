@@ -57,12 +57,8 @@ jobs:
       HAS_IOS_SIGNING: ${{ secrets.SIGNING_PASSPHRASE != '' && secrets.DOSDECK_PROFILE_BASE64 != '' }}
 
     steps:
-      # The core is a submodule and nothing builds without it. ios/build-core.sh
-      # stops early and says so rather than failing later inside the compiler,
-      # but a checkout without this wastes the whole job.
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
           fetch-depth: 1
 
       # macOS ships BSD m4, which autoconf refuses ("no acceptable m4 could be
@@ -280,7 +276,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
           fetch-depth: 1
 
       - name: Build tools

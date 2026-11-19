@@ -209,7 +209,16 @@ struct AppConfig {
      * them under their own tab. Empty means there is no such folder. */
     std::string apps_root;
 
+    /* Box art kept beside the library: <artwork_root>/<title>.png or .jpg,
+     * named after the game's folder. Empty means there is no such folder. */
+    std::string artwork_root;
+
     bool        wizard_done = false;
+
+    /* The setup step to reopen when the engine next exits, or -1. Set when the
+     * walkthrough starts the demo, and saved, because on Android a second
+     * engine run restarts the process and the walkthrough must survive it. */
+    int         wizard_resume = -1;
     Settings    defaults;
 
     /* On-screen control positions, as "button,x,y,r;..." with x/y/r as
@@ -229,9 +238,12 @@ struct AppConfig {
 bool load_app_config(const std::string &path, AppConfig &out);
 bool save_app_config(const std::string &path, const AppConfig &cfg);
 
-/** Derive library_root, iso_root and machines_root from storage_root as
- *  <root>/games, <root>/discs and <root>/machines. No-op when storage_root is
- *  empty. Does not create the folders. */
+/** Derive library_root, iso_root, machines_root, apps_root and artwork_root
+ *  from storage_root. Each is a folder already inside the root under a name
+ *  people commonly use for it (a "Games" or "roms" folder for games, "ISOs"
+ *  for discs, "covers" for artwork), or <root>/games, <root>/discs,
+ *  <root>/machines, <root>/apps and <root>/artwork when there is none. No-op
+ *  when storage_root is empty. Does not create the folders. */
 void apply_storage_root(AppConfig &cfg);
 
 /** The machines folder: machines_root, or the games folder when unset. */
@@ -245,6 +257,11 @@ std::string machines_dir(const AppConfig &cfg);
  * folder (or the games folder) for everything.
  */
 std::string discs_dir(const AppConfig &cfg, const char *kind);
+
+/** The existing folder inside [root] that holds [kind] ("games", "apps",
+ *  "discs", "machines" or "artwork"), whatever it is called, or
+ *  root + "/" + kind when there is none. */
+std::string folder_for(const std::string &root, const char *kind);
 
 /* Per-game overrides live beside the app config, one file per title. */
 bool load_game_settings(const std::string &dir, const std::string &game, Settings &out);

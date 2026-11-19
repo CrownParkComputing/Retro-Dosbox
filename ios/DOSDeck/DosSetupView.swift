@@ -176,6 +176,7 @@ struct DosSetupView: View {
             ChoiceRow(title: title.name,
                       subtitle: subtitle(for: title),
                       icon: title.icon,
+                      artwork: Storage.artwork(for: title),
                       selected: chosen?.id == title.id)
         }
         .buttonStyle(.plain)

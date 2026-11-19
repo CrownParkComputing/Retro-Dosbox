@@ -1,0 +1,93 @@
+## 2.1 - the demo video, and the hardware there is not
+
+There is no designated hardware. DOSDeck is self-contained: it runs on the
+device, is driven by the on-screen keyboard and pointer, and pairs with,
+connects to and requires no accessory. There is no pairing process to film,
+because the app performs none.
+
+Our own Bluetooth purpose string is what gave the opposite impression, and it
+was wrong. It said the app "uses Bluetooth only to connect game controllers".
+The app contains no CoreBluetooth code at all. SDL, the library it is built
+on, links the framework, and iOS requires a purpose string from any binary
+that links a protected API whether or not it is ever called - which is what
+our camera and microphone strings already said. The Bluetooth one now says it
+too.
+
+If someone already owns a game controller it is paired in iOS Settings like
+any other Bluetooth accessory and reaches the app through the system
+GameController framework. The app never initiates pairing and never scans. A
+controller is optional and the app is fully usable without one.
+
+Demo video, current version, on a physical device: VIDEO_LINK
+
+## What this app is
+
+DOSDeck is a DOS and Windows 98 machine for iPhone and iPad. The emulation is
+DOSBox-X, GNU GPL v2, unmodified, credited on the first screen and in full on
+the About screen.
+
+## 4.3 - cleared 23 October 2026
+
+The interface was rewritten in Swift and SwiftUI for iOS and shares no screen
+with anything else we publish; this build compiles no ImGui at all. What is
+shared with our other apps is the GPL emulator underneath, which is credited.
+
+## 4.7.4 - index of software offered in the app
+
+**There is none.** No catalogue, no store, no downloads, no links to obtain
+software. It runs software the user already has.
+
+Two items are embedded in the app and neither is offered as a download. On
+first launch they are copied into the app's own folders, where they appear as
+ordinary content:
+
+- DEMO.COM - a 354-byte demonstration program we wrote (ours, GPL v2)
+- FREEDOS.IMG - a FreeDOS 1.3 boot floppy (GNU GPL v2, freedos.org)
+
+Everything else is a file the user supplies through the Files app. The app has
+no means of acquiring software.
+
+## 2.5.2 / JIT
+
+No just-in-time compilation. The core is built with --disable-dynamic-core
+--disable-dynamic-x86 --disable-dynrec; the interpreter is the only CPU
+implementation in the binary. No writable-executable memory is requested.
+
+## 5.6 / networking
+
+**The app has no network features of any kind.** No account, no sign in, no
+analytics, no update check, no telemetry.
+
+Enforced in the build, not asserted: DOSBox-X's IPX, NE2000 and null-modem
+emulation are all configured off, and the build FAILS if the finished library
+imports any BSD socket call or pcap_*.
+
+## Privacy
+
+Nothing is collected, because nothing leaves the device.
+
+## How to try it, with no files of your own
+
+1. Open the app. The first screen asks Windows or DOS.
+2. Choose DOS. The list already contains Demo, which ships inside the app.
+3. Tap Demo, then Start. A DOS machine boots and runs it. Nothing has to be
+   downloaded or copied in first.
+4. While it runs, Keys gives you a PC keyboard and Run starts something else
+   without restarting the machine.
+
+To see the Windows half without a Windows CD, choose Windows at the first
+screen: the wizard explains each step and shows what is missing, which in your
+case is the disc. DOSDeck does not supply Windows and cannot obtain it.
+
+## Copyright
+
+No proprietary software is bundled, downloaded or linked to. The app supplies
+no MS-DOS, no Windows and no game. The Windows walkthrough installs from a CD
+the user already owns.
+
+## One machine per launch
+
+DOSBox-X initialises its globals once per process, so a second session cannot
+be started in it. DOSDeck never needs one: you choose a machine at the first
+screen and everything else - mounting a folder, running another program,
+changing the disc - happens inside it.

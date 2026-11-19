@@ -1,0 +1,5 @@
+# The upstream DOSBox-X this core is merged up to. tool/update-core.sh reads
+# and rewrites this file; edit it only by hand if you merge upstream by hand.
+repo=https://github.com/joncampbell123/dosbox-x.git
+ref=dosbox-x-v2026.10.01
+commit=b6abbd5980a885f5f310a4088c59a8688d1b116c

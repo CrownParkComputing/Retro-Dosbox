@@ -3,8 +3,8 @@
 #include "imgui.h"
 
 #define STB_IMAGE_IMPLEMENTATION
-/* PNG and JPEG, and no stdio. The wordmark is a PNG; box art from RetroMedia
- * is whichever of the two the scraper found, and decode_image() below is what
+/* PNG and JPEG, and no stdio. The wordmark is a PNG; box art in the
+ * artwork folder is whichever of the two the user saved, and decode_image() below is what
  * reads it. The rest of stb's decoders are code we would ship and never run,
  * and its file helpers would bypass SDL's asset routing -- which is the one
  * thing this file exists to get right. */

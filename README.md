@@ -12,16 +12,21 @@ in the same process as the core.
 
 ## Layout
 
-    core/       DOSBox-X, ported to SDL3   (submodule: CrownParkComputing/dosbox-x-sdl3)
-    frontend/   the launcher: library, settings, on-screen controls, RetroMedia
+    core/       DOSBox-X, ported to SDL3   (in-tree; see core/UPSTREAM)
+    frontend/   the launcher: library, settings, on-screen controls, setup walkthrough
     android/    the Android application and its build script
     ios/        the iOS application, its build script and its signing material
     demo/       bundled content, and the source that generates it
 
-The core is a **submodule rather than a copy**. It is a fork of DOSBox-X with
-upstream still attached, which is what keeps its changes mergeable; vendoring
-the tree into this repository would end that and duplicate several gigabytes of
-sources for nothing.
+The core lives **in this repository**, so one checkout builds Android, iOS and
+Linux. It is DOSBox-X with our SDL3 port and the `retrodos_host` embedding API
+on top. `core/UPSTREAM` records the upstream release it is merged up to, and
+`tool/update-core.sh` merges a newer one (three-way, so only real conflicts
+need attention):
+
+    tool/update-core.sh              # latest upstream release tag
+    tool/update-core.sh <ref>        # or a specific tag/commit
+    tool/update-core.sh --finish     # after resolving any conflicts
 
 ## Where things live
 
@@ -33,6 +38,29 @@ The setup wizard asks for **one folder** and keeps everything under it:
     <folder>/discs/windows/   the Windows install CD and Windows game CDs
     <folder>/discs/freedos/   the FreeDOS CD
     <folder>/machines/        Windows 98/ and FreeDOS/, each with its hard disk image
+    <folder>/artwork/         box art, named like the game: "Doom/" -> "Doom.png" or ".jpg"
+
+Folders that already exist under other common names are used as they are --
+"DOS Games" or "roms" for games, "ISOs" or "CDs" for discs, "covers" for
+artwork -- and a non-empty one wins over an empty folder of the default name.
+
+## First-run setup
+
+On Android (and the Linux build) the walkthrough runs one step at a time:
+Welcome (what games, apps, discs and machines are) -> Your folder (pick it on
+Android; on iOS it is the app's own folder in Files) with what was found in
+it -> Games and apps, with live counts -> Discs, sorted into dos/, windows/
+and freedos/ -> Try it, which runs the bundled demo or FreeDOS and comes back
+to the same step (a "Back to setup" button is on the emulator strip, and the
+step is saved so an Android restart between engine runs still returns) ->
+Windows 98 and FreeDOS, optional, each opening its installer with "Back to
+setup" on the rail -> Controls and artwork -> Ready, a summary.
+
+DOSDeck on iOS has its own SwiftUI guide (`ios/DOSDeck/SetupGuide.swift`),
+shown once before the front door and reopened from its footer: Welcome ->
+Your folders (DOS, Discs and Windows in the Files app, with counts) -> Your
+software -> Discs -> Windows 98 (optional; opens the Windows wizard) ->
+Controls -> Ready, with the demo one tap away.
 
 The rail is Launch, Library, Media, Windows, FreeDOS. Library lists games and
 applications together with an A-Z / 0-9 strip and a search modal; tapping a
@@ -50,12 +78,12 @@ picker -- granted read/write and persisted, resolved to a real path because
 DOSBox-X mounts paths, not `content://` URIs -- or the app's own storage on
 any volume, which needs no permission. A picked folder that Android will not
 let the app write to directly is reported in the wizard rather than failing
-later. "Run setup again" on the Library page goes back through the wizard;
+later. "Run setup again" on the Machine page goes back through the wizard;
 nothing is moved when the folder changes.
 
 ## Building
 
-    git clone --recurse-submodules https://github.com/CrownParkComputing/Retro-Dosbox.git
+    git clone https://github.com/CrownParkComputing/Retro-Dosbox.git
     cd Retro-Dosbox/android
     ./build-core.sh          # cross-compiles the core and the frontend
     gradle assembleDebug
@@ -66,8 +94,8 @@ frontend, links `libretrodos.so`, and installs the result into
 is not a convenience: without it Gradle reports BUILD SUCCESSFUL while shipping
 the previous library.
 
-If the submodule has not been initialised the script stops and says so, rather
-than failing later inside the compiler.
+If `core/` is missing the script stops and says so, rather than failing later
+inside the compiler.
 
 ### Linux desktop
 
@@ -75,9 +103,7 @@ than failing later inside the compiler.
 
 The same frontend and core as the phone, linked into one native executable
 with the system SDL3. Nothing is installed: run the binary where it was built,
-since it reads `assets/` and `demo/` from beside itself. With libcurl and
-minizip present the RetroMedia client is compiled in; without them the pages
-are simply hidden. The games folder is chosen on first run, the same as on a
+since it reads `assets/` and `demo/` from beside itself. The games folder is chosen on first run, the same as on a
 handheld, and the Windows and FreeDOS setup walkthroughs work identically --
 which makes this the quickest place to try a change to either before a device
 build.
@@ -129,11 +155,11 @@ never agreed on a control scheme — Keen jumps on Ctrl and pogos on Alt, Descen
 wants the arrows and six degrees of freedom. Presets are provided and the
 mapping can be changed from the in-game menu, while the game is on screen.
 
-## RetroMedia
+## Artwork
 
-Signing in to `media.crownparkcomputing.com` fetches box art. Administrators
-can also download games. Downloads are gated on the platform as well as the
-account: an App Store build does not offer them at all.
+Box art is local: a PNG or JPEG in `<folder>/artwork/` named exactly like the
+game's folder (`Doom/` -> `Doom.png`). There is no account and no network
+access; the app does not ask for the Internet permission.
 
 ## Licensing
 

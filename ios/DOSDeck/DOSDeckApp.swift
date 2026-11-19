@@ -80,9 +80,11 @@ struct DOSDeckApp: App {
 /// machine simply changes what the root shows.
 struct RootView: View {
     @EnvironmentObject var engine: Engine
-    @State private var route: Route = .frontDoor
+    /// The setup guide first, once; after that the front door.
+    @State private var route: Route =
+        UserDefaults.standard.bool(forKey: SetupGuide.doneKey) ? .frontDoor : .guide
 
-    enum Route { case frontDoor, dos, windows }
+    enum Route { case guide, frontDoor, dos, windows }
 
     var body: some View {
         ZStack {
@@ -90,6 +92,9 @@ struct RootView: View {
                 SessionView().environmentObject(engine)
             } else {
                 switch route {
+                case .guide:
+                    SetupGuide(onFinish: { route = $0 })
+                        .environmentObject(engine)
                 case .frontDoor:
                     FrontDoor(onChoose: { route = $0 },
                               openAbout: Shot.requested == .about)
@@ -112,7 +117,9 @@ struct RootView: View {
     /// Does nothing in a shipped app -- see Shot.
     private func openRequestedScreen() {
         switch Shot.requested {
-        case .none, .front, .about:
+        case .none:
+            break
+        case .front, .about:
             route = .frontDoor
         case .dos, .machine:
             route = .dos

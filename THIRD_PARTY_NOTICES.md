@@ -5,12 +5,13 @@ See [LICENSE](LICENSE).
 
 ## DOSBox-X
 
-The emulator core. This project uses a fork ported to SDL3, kept as the `core`
-submodule so that upstream changes remain mergeable.
+The emulator core. This project uses DOSBox-X ported to SDL3, kept in the
+`core/` directory of this repository; `core/UPSTREAM` records the upstream
+release it is based on.
 
 - Project: https://dosbox-x.com/
 - Upstream source: https://github.com/joncampbell123/dosbox-x
-- Fork used here: https://github.com/CrownParkComputing/dosbox-x-sdl3
+- Modified source: the `core/` directory of https://github.com/CrownParkComputing/Retro-Dosbox
 - License: GNU General Public License version 2
 
 DOSBox-X is itself based on DOSBox and carries further third-party components
@@ -54,5 +55,5 @@ Because GPL binaries are redistributed, the corresponding source must be
 available to anyone who receives them. It is:
 
 - This application: https://github.com/CrownParkComputing/Retro-Dosbox
-- The emulator core: https://github.com/CrownParkComputing/dosbox-x-sdl3
+- The emulator core: the `core/` directory of the repository above
 - FreeDOS: https://www.freedos.org/download/

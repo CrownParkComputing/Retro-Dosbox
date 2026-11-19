@@ -1,0 +1,17 @@
+Thank you for the review.
+
+There is no designated hardware. DOSDeck is a self-contained DOS and Windows 98 emulator: it runs entirely on the device, with the on-screen keyboard and pointer, and it does not pair with, connect to, or require any accessory. There is no pairing process to film because the app performs none.
+
+We think we know exactly what gave the opposite impression, and it was our mistake. Our Bluetooth purpose string read:
+
+    "DOSDeck uses Bluetooth only to connect game controllers."
+
+That sentence is wrong. The app contains no CoreBluetooth code whatsoever. The framework is linked only because SDL, the library the app is built on, links it — and iOS requires a purpose string from any binary that links a protected API whether or not it is ever called. Our camera and microphone strings say precisely that, and the Bluetooth one should have too. It now reads:
+
+    "DOSDeck does not use Bluetooth and never pairs or scans for devices. This entry is required because the SDL library the app is built on links Apple's Bluetooth APIs, and iOS asks for the description whether or not they are ever called."
+
+On game controllers: if a person already has one, it is paired in iOS Settings like any other Bluetooth accessory and reaches the app through the system GameController framework. The app never initiates pairing, never scans, and has no accessory of its own. A controller is not required and the app is fully usable without one.
+
+We have also attached a video of the current version running on a physical device, showing the whole workflow end to end: choosing DOS or Windows, the setup walkthrough, the machine booting, and the on-screen keyboard and pointer in use. The link is in the App Review Information section.
+
+If a video of something specific would help — any particular screen or step — please say which and we will film it.

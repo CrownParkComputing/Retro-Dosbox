@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <map>
+#include <string>
+#include <vector>
 
 namespace retrodos {
 namespace {
@@ -225,12 +227,14 @@ bool load_app_config(const std::string &path, AppConfig &out)
     out.iso_root      = as_str(kv, "iso_root", out.iso_root);
     out.machines_root = as_str(kv, "machines_root", out.machines_root);
     out.apps_root     = as_str(kv, "apps_root", out.apps_root);
+    out.artwork_root  = as_str(kv, "artwork_root", out.artwork_root);
     /* The derived three are saved too, but the root is the truth: a hand
      * edit to one of them would otherwise split the library across folders. */
     apply_storage_root(out);
     out.wizard_done  = as_bool(kv, "wizard_done", false);
     out.pad_layout   = as_str(kv, "pad_layout", out.pad_layout);
     out.pending_launch = as_str(kv, "pending_launch", out.pending_launch);
+    out.wizard_resume = std::atoi(as_str(kv, "wizard_resume", "-1").c_str());
     read_settings(kv, out.defaults);
     return true;
 }
@@ -243,9 +247,11 @@ bool save_app_config(const std::string &path, const AppConfig &cfg)
     if (!cfg.iso_root.empty()) s += "iso_root=" + cfg.iso_root + "\n";
     if (!cfg.machines_root.empty()) s += "machines_root=" + cfg.machines_root + "\n";
     if (!cfg.apps_root.empty())     s += "apps_root=" + cfg.apps_root + "\n";
+    if (!cfg.artwork_root.empty())  s += "artwork_root=" + cfg.artwork_root + "\n";
     s += "wizard_done=";  s += cfg.wizard_done ? "1" : "0"; s += "\n";
     if (!cfg.pad_layout.empty()) s += "pad_layout=" + cfg.pad_layout + "\n";
     if (!cfg.pending_launch.empty()) s += "pending_launch=" + cfg.pending_launch + "\n";
+    if (cfg.wizard_resume >= 0) s += "wizard_resume=" + std::to_string(cfg.wizard_resume) + "\n";
     append_settings(s, cfg.defaults);
     return write_file(path, s);
 }
@@ -401,10 +407,78 @@ void apply_storage_root(AppConfig &cfg)
     std::string r = cfg.storage_root;
     while (r.size() > 1 && (r.back() == '/' || r.back() == '\\')) r.pop_back();
     cfg.storage_root  = r;
-    cfg.library_root  = r + "/games";
-    cfg.iso_root      = r + "/discs";
-    cfg.machines_root = r + "/machines";
-    cfg.apps_root     = r + "/apps";
+    cfg.library_root  = folder_for(r, "games");
+    cfg.iso_root      = folder_for(r, "discs");
+    cfg.machines_root = folder_for(r, "machines");
+    cfg.apps_root     = folder_for(r, "apps");
+    cfg.artwork_root  = folder_for(r, "artwork");
+}
+
+namespace {
+
+struct ChildList { std::vector<std::string> names; };
+
+SDL_EnumerationResult SDLCALL collect_child(void *userdata, const char *, const char *name)
+{
+    static_cast<ChildList *>(userdata)->names.push_back(name);
+    return SDL_ENUM_CONTINUE;
+}
+
+/* One level only: SDL_EnumerateDirectory does not recurse, which matters on
+ * Android, where /storage/self is a symlink back to its own parent. */
+std::vector<std::string> child_names(const std::string &dir)
+{
+    ChildList out;
+    SDL_EnumerateDirectory(dir.c_str(), collect_child, &out);
+    return out.names;
+}
+
+bool has_visible_child(const std::string &dir)
+{
+    for (const std::string &n : child_names(dir))
+        if (!n.empty() && n[0] != '.' && n[0] != '~') return true;
+    return false;
+}
+
+} /* namespace */
+
+std::string folder_for(const std::string &root, const char *kind)
+{
+    /*
+     * People have had DOS collections for years, and they are not named what
+     * this app would have named them. The canonical name comes first, so an
+     * app-made folder keeps being used; but one that exists and is empty
+     * loses to an alias that actually holds something -- otherwise an empty
+     * games/ made on a previous run would hide a "DOS Games" folder for ever.
+     */
+    static const struct { const char *kind; const char *names[10]; } kAlias[] = {
+        { "games",    { "games", "dos games", "dosgames", "roms", "library", nullptr } },
+        { "apps",     { "apps", "applications", "programs", "software", "utilities", nullptr } },
+        { "discs",    { "discs", "disks", "disc images", "cds", "cd", "isos", "iso",
+                        "images", nullptr } },
+        { "machines", { "machines", "systems", "vms", nullptr } },
+        { "artwork",  { "artwork", "art", "covers", "boxart", "box art", nullptr } },
+    };
+    if (root.empty()) return std::string();
+    const std::string fallback = root + "/" + kind;
+
+    const std::vector<std::string> children = child_names(root);
+    std::string first_existing;
+    for (const auto &a : kAlias) {
+        if (SDL_strcmp(kind, a.kind) != 0) continue;
+        for (int i = 0; a.names[i]; ++i) {
+            for (const std::string &child : children) {
+                if (SDL_strcasecmp(child.c_str(), a.names[i]) != 0) continue;
+                const std::string p = root + "/" + child;
+                SDL_PathInfo info;
+                if (!SDL_GetPathInfo(p.c_str(), &info) ||
+                    info.type != SDL_PATHTYPE_DIRECTORY) continue;
+                if (has_visible_child(p)) return p;
+                if (first_existing.empty()) first_existing = p;
+            }
+        }
+    }
+    return first_existing.empty() ? fallback : first_existing;
 }
 
 std::string discs_dir(const AppConfig &cfg, const char *kind)
